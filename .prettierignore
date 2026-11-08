@@ -1,0 +1,6 @@
+node_modules
+.next
+src/generated
+pnpm-lock.yaml
+tests/pdf/output
+docs/requirements.md

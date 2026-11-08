@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://cverixa:cverixa@localhost:5432/cverixa_test?schema=public
+  SESSION_SECRET: ci-session-secret-at-least-32-characters-long
+  AI_ENABLE_MOCK_PROVIDER: "true"
+  APP_URL: http://localhost:3100
+
+jobs:
+  quality:
+    name: Lint, typecheck, unit and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cverixa
+          POSTGRES_PASSWORD: cverixa
+          POSTGRES_DB: cverixa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cverixa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for PDF rendering
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Lint
+        run: pnpm lint
+      - name: Format check
+        run: pnpm format:check
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Apply database migrations
+        run: pnpm db:migrate
+      - name: Unit tests
+        run: pnpm test:unit
+      - name: Integration tests (document import, database services)
+        run: pnpm test:integration
+      - name: PDF fixture checks
+        run: pnpm test:pdf
+      - name: Upload PDF fixtures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-fixtures
+          path: tests/pdf/output
+          if-no-files-found: ignore
+
+  build-and-e2e:
+    name: Production build and end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: quality
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cverixa
+          POSTGRES_PASSWORD: cverixa
+          POSTGRES_DB: cverixa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cverixa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Production build
+        run: pnpm build
+      - name: End-to-end tests
+        run: pnpm test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore

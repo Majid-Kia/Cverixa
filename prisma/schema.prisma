@@ -1,0 +1,191 @@
+// Cverixa data model. See docs/data-model.md for the rationale behind each entity.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// The owner account. The MVP is single-user; ownership columns on every
+/// entity keep the boundary ready for a later multi-user mode.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions          Session[]
+  careerProfiles    CareerProfile[]
+  jobDescriptions   JobDescription[]
+  resumes           Resume[]
+  generationRuns    GenerationRun[]
+  aiConfigurations  AIProviderConfiguration[]
+  importSessions    ImportSession[]
+}
+
+/// Database-backed login session referenced by an HttpOnly cookie.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Master Career Profile. Content lives in immutable revisions.
+model CareerProfile {
+  id                String   @id @default(cuid())
+  ownerId           String
+  name              String
+  currentRevisionId String?  @unique
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  currentRevision CareerProfileRevision?  @relation("CurrentRevision", fields: [currentRevisionId], references: [id])
+  revisions       CareerProfileRevision[] @relation("ProfileRevisions")
+  resumes         Resume[]
+
+  @@index([ownerId])
+}
+
+model CareerProfileRevision {
+  id             String    @id @default(cuid())
+  profileId      String
+  version        Int
+  schemaVersion  Int       @default(1)
+  structuredData Json
+  confirmedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  profile        CareerProfile   @relation("ProfileRevisions", fields: [profileId], references: [id], onDelete: Cascade)
+  currentOf      CareerProfile?  @relation("CurrentRevision")
+  generationRuns GenerationRun[]
+
+  @@unique([profileId, version])
+}
+
+/// A pending resume import awaiting user review and confirmation.
+model ImportSession {
+  id             String   @id @default(cuid())
+  ownerId        String
+  fileName       String
+  fileType       String
+  warnings       Json
+  structuredData Json
+  createdAt      DateTime @default(now())
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+}
+
+model JobDescription {
+  id                     String   @id @default(cuid())
+  ownerId                String
+  title                  String?
+  company                String?
+  location               String?
+  sourceUrl              String?
+  notes                  String?
+  originalText           String
+  structuredRequirements Json?
+  analysisProviderId     String?
+  analysisModelId        String?
+  analyzedAt             DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  resumes        Resume[]
+  generationRuns GenerationRun[]
+
+  @@index([ownerId, createdAt])
+}
+
+model Resume {
+  id               String   @id @default(cuid())
+  ownerId          String
+  careerProfileId  String
+  jobDescriptionId String?
+  title            String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  careerProfile  CareerProfile   @relation(fields: [careerProfileId], references: [id], onDelete: Cascade)
+  jobDescription JobDescription? @relation(fields: [jobDescriptionId], references: [id], onDelete: SetNull)
+  revisions      ResumeRevision[]
+
+  @@index([ownerId, updatedAt])
+}
+
+/// Immutable snapshot of a generated or edited resume.
+model ResumeRevision {
+  id                      String   @id @default(cuid())
+  resumeId                String
+  version                 Int
+  schemaVersion           Int      @default(1)
+  templateId              String
+  pageFormat              String   @default("A4")
+  careerProfileRevisionId String?
+  content                 Json
+  changeReport            Json?
+  generationMetadata      Json?
+  validationStatus        String
+  createdAt               DateTime @default(now())
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@unique([resumeId, version])
+}
+
+model GenerationRun {
+  id                      String    @id @default(cuid())
+  ownerId                 String
+  careerProfileRevisionId String
+  jobDescriptionId        String
+  providerId              String
+  modelId                 String
+  mode                    String
+  templateId              String
+  userInstructions        String?
+  status                  String
+  failureReason           String?
+  /// Review Mode: proposals and baseline/tailored content awaiting decisions.
+  proposal                Json?
+  resultResumeId          String?
+  resultRevisionId        String?
+  startedAt               DateTime  @default(now())
+  finishedAt              DateTime?
+
+  owner                 User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  careerProfileRevision CareerProfileRevision @relation(fields: [careerProfileRevisionId], references: [id], onDelete: Cascade)
+  jobDescription        JobDescription        @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, startedAt])
+}
+
+/// Non-secret provider preferences. API keys are read from environment variables only.
+model AIProviderConfiguration {
+  id            String   @id @default(cuid())
+  ownerId       String
+  providerId    String
+  modelId       String
+  isDefault     Boolean  @default(false)
+  configuration Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, providerId])
+}

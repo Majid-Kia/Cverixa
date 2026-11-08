@@ -1,0 +1,51 @@
+# Local development infrastructure. The Next.js app itself runs with `pnpm dev`
+# on the host so hot reload works; use the `app` profile to run it in Docker.
+#
+#   docker compose up -d postgres            # database only
+#   docker compose --profile ollama up -d    # database + local Ollama
+#   docker compose --profile app up --build  # full stack in containers
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cverixa
+      POSTGRES_PASSWORD: cverixa
+      POSTGRES_DB: cverixa
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cverixa"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  app:
+    build: .
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://cverixa:cverixa@postgres:5432/cverixa?schema=public
+      # When using the ollama service above: http://ollama:11434
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  ollama-data:
