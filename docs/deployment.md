@@ -83,3 +83,13 @@ Provider API keys and `SESSION_SECRET` are environment configuration and must be
 ## Ollama connectivity
 
 See docs/ai-providers.md. In short: the application server, not the user's browser, talks to Ollama. For hosted deployments run Ollama on a private host, allow-list it, and expect generation latency to depend on that machine's hardware.
+
+## Render (free tier)
+
+`render.yaml` describes a free Docker web service plus a free PostgreSQL instance. In the Render dashboard choose **New > Blueprint**, select this repository, then set the secrets marked `sync: false` (`APP_URL`, provider API keys). After the first deploy, create the owner from the service **Shell** tab:
+
+```bash
+OWNER_EMAIL=you@example.com OWNER_PASSWORD='A-strong-password-123' pnpm owner:create
+```
+
+Free-tier notes: the web service sleeps after inactivity (first request takes ~30 s), it has 512 MB RAM (enough for typical resumes), and Render's free PostgreSQL is deleted 30 days after creation unless upgraded. For a longer-lived free database, point `DATABASE_URL` at a Neon free-tier instance instead. Ollama is not reachable from Render, so configure OpenAI or Anthropic.

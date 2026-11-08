@@ -1,0 +1,38 @@
+# Render blueprint: free web service (Docker, Chromium included) + free PostgreSQL.
+# Deploy from the Render dashboard with "New > Blueprint" or via the Render API.
+# Secrets marked sync: false are set manually in the dashboard/API, never committed.
+
+databases:
+  - name: cverixa-db
+    plan: free
+    databaseName: cverixa
+    user: cverixa
+
+services:
+  - type: web
+    name: cverixa
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cverixa-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AI_TIMEOUT_MS
+        value: "120000"
+      - key: OLLAMA_ALLOWED_HOSTS
+        value: ""
