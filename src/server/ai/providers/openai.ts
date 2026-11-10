@@ -123,7 +123,14 @@ export function normalizeOpenAIError(error: unknown): AIProviderError {
       return new AIProviderError("openai", "auth", "OpenAI rejected the configured API key.");
     }
     if (status === 429) {
-      return new AIProviderError("openai", "rate_limit", "OpenAI rate limit or quota exceeded. Try again later.", true);
+      if (error.type === "insufficient_quota" || error.code === "insufficient_quota") {
+        return new AIProviderError(
+          "openai",
+          "rate_limit",
+          "OpenAI API quota exhausted. Check your API billing and usage limits.",
+        );
+      }
+      return new AIProviderError("openai", "rate_limit", "OpenAI rate limit reached. Try again later.", true);
     }
     if (status === 404) {
       return new AIProviderError(

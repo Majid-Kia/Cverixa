@@ -17,7 +17,9 @@ export interface ProviderDefinition {
   suggestedModels: string[];
 }
 
-const globalForRegistry = globalThis as unknown as { aiProviders?: Map<AIProviderId, AIProvider> };
+// Keep provider instances with their module so route handlers and server actions
+// use the same error constructors as their callers.
+let aiProviders: Map<AIProviderId, AIProvider> | undefined;
 
 function buildProviders(): Map<AIProviderId, AIProvider> {
   const env = getEnv();
@@ -42,10 +44,7 @@ function buildProviders(): Map<AIProviderId, AIProvider> {
 }
 
 function providers(): Map<AIProviderId, AIProvider> {
-  if (!globalForRegistry.aiProviders) {
-    globalForRegistry.aiProviders = buildProviders();
-  }
-  return globalForRegistry.aiProviders;
+  return (aiProviders ??= buildProviders());
 }
 
 export function listProviderDefinitions(): ProviderDefinition[] {
@@ -108,5 +107,5 @@ export function getProvider(id: string): AIProvider {
 
 /** Test hook: replace the registry (used by integration tests with a custom mock). */
 export function __setProvidersForTests(map: Map<AIProviderId, AIProvider> | undefined) {
-  globalForRegistry.aiProviders = map;
+  aiProviders = map;
 }

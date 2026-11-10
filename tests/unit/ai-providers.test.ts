@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { jobAnalysisAiOutputSchema } from "@/features/job-analysis/schema";
@@ -173,6 +174,26 @@ describe("Ollama endpoint safety (PRD 15.5)", () => {
 });
 
 describe("error normalization", () => {
+  it("distinguishes exhausted OpenAI API quota from a temporary rate limit", () => {
+    const headers = new Headers();
+    const quota = new OpenAI.RateLimitError(
+      429,
+      { type: "insufficient_quota", code: "credit_balance_exhausted" },
+      undefined,
+      headers,
+    );
+    const rateLimit = new OpenAI.RateLimitError(429, { code: "rate_limit_exceeded" }, undefined, headers);
+
+    expect(normalizeOpenAIError(quota)).toMatchObject({
+      message: "OpenAI API quota exhausted. Check your API billing and usage limits.",
+      retryable: false,
+    });
+    expect(normalizeOpenAIError(rateLimit)).toMatchObject({
+      message: "OpenAI rate limit reached. Try again later.",
+      retryable: true,
+    });
+  });
+
   it("passes through normalized errors and maps unknown errors", () => {
     const original = new AIProviderError("openai", "auth", "bad key");
     expect(normalizeOpenAIError(original)).toBe(original);
