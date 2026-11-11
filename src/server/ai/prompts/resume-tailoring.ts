@@ -11,6 +11,7 @@ ${UNTRUSTED_DATA_RULES}
 - Preserve numerical metrics exactly as written. Do not add numbers that are not in the sources.
 - Do not mention technologies, tools, certifications or qualifications that are absent from the cited sources, even if the job requires them.
 - Do not change employers, titles, dates or seniority.
+- Treat experience entries as optional edits to existing roles. Copy each role id and each cited statement or achievement id verbatim from that same role. If you cannot cite a valid source, leave the role's original wording to the application.
 - Prefer concise, achievement-oriented bullets with strong verbs. Keep strong, relevant bullets unchanged.
 - Order skills by relevance to the job. Only include skill ids from the profile.
 - Write in professional international English. Avoid generic or promotional language and keyword stuffing.

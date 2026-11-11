@@ -25,11 +25,11 @@ export class AnthropicProvider implements AIProvider {
 
   constructor(private readonly options: AnthropicProviderOptions) {}
 
-  private client(): Anthropic {
+  private client(timeoutMs = this.options.defaultTimeoutMs): Anthropic {
     if (!this.options.apiKey) {
       throw new AIProviderError("anthropic", "not_configured", "ANTHROPIC_API_KEY is not configured on the server.");
     }
-    return new Anthropic({ apiKey: this.options.apiKey, timeout: this.options.defaultTimeoutMs, maxRetries: 1 });
+    return new Anthropic({ apiKey: this.options.apiKey, timeout: timeoutMs, maxRetries: 1 });
   }
 
   async listModels(): Promise<AIModel[]> {
@@ -56,8 +56,8 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async generateStructured<T>(request: StructuredGenerationRequest<T>): Promise<StructuredGenerationResult<T>> {
-    const client = this.client();
     const timeoutMs = request.timeoutMs ?? this.options.defaultTimeoutMs;
+    const client = this.client(timeoutMs);
     const started = Date.now();
     try {
       const response: Anthropic.Message = await withTimeout(

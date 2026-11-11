@@ -24,11 +24,11 @@ export class OpenAIProvider implements AIProvider {
 
   constructor(private readonly options: OpenAIProviderOptions) {}
 
-  private client(): OpenAI {
+  private client(timeoutMs = this.options.defaultTimeoutMs): OpenAI {
     if (!this.options.apiKey) {
       throw new AIProviderError("openai", "not_configured", "OPENAI_API_KEY is not configured on the server.");
     }
-    return new OpenAI({ apiKey: this.options.apiKey, timeout: this.options.defaultTimeoutMs, maxRetries: 1 });
+    return new OpenAI({ apiKey: this.options.apiKey, timeout: timeoutMs, maxRetries: 1 });
   }
 
   async listModels(): Promise<AIModel[]> {
@@ -63,8 +63,8 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async generateStructured<T>(request: StructuredGenerationRequest<T>): Promise<StructuredGenerationResult<T>> {
-    const client = this.client();
     const timeoutMs = request.timeoutMs ?? this.options.defaultTimeoutMs;
+    const client = this.client(timeoutMs);
     const started = Date.now();
     try {
       const completion = await withTimeout(

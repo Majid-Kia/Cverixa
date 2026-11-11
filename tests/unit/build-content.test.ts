@@ -99,6 +99,24 @@ describe("buildTailoredContent (Stages 4-6)", () => {
     expect(result.content.experience[0].bullets.map((bullet) => bullet.text)).toEqual([
       "Reduced dashboard load time by 40%.",
     ]);
+    expect(result.content.experience[1].id).toBe("exp_shop");
+    expect(result.content.experience[1].bullets.length).toBeGreaterThan(0);
+    expect(result.changeReport.omittedExperience).toEqual([]);
+  });
+
+  it("restores the original bullets when every proposed rewrite for a role is rejected", () => {
+    const aiOutput: TailoringAiOutput = {
+      ...goodOutput,
+      experience: [{ id: "exp_acme", bullets: [{ text: "Led 50 migrations.", sourceIds: ["not_a_source"] }] }],
+    };
+    const result = buildTailoredContent({ profile, analysis, evidence, aiOutput });
+    const baseline = buildBaselineContent(profile);
+    expect(result.content.experience.map((entry) => entry.bullets.map((bullet) => bullet.text))).toEqual(
+      baseline.experience.map((entry) => entry.bullets.map((bullet) => bullet.text)),
+    );
+    expect(result.changeReport.rejectedClaims).toHaveLength(1);
+    expect(result.changeReport.omittedExperience).toEqual([]);
+    expect(result.validationStatus).toBe("passed_with_rejections");
   });
 
   it("ignores unknown ids from the model and falls back to original bullets", () => {

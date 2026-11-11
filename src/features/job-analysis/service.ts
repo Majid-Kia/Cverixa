@@ -138,6 +138,7 @@ export async function analyzeJobDescription(
     task: "job_analysis",
     providerId: selection.providerId,
     modelId: selection.modelId,
+    timeoutMs: selection.timeoutMs,
     schema: jobAnalysisAiOutputSchema,
     system: JOB_ANALYSIS_SYSTEM_PROMPT,
     user: buildJobAnalysisUserPrompt({ text: job.originalText, title: job.title, company: job.company }),

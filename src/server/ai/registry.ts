@@ -1,6 +1,8 @@
 import "server-only";
 import { getEnv, isProduction } from "@/lib/env";
+import { chatgptConnection, chatgptOrigin } from "./chatgpt/session";
 import { AnthropicProvider } from "./providers/anthropic";
+import { ChatGPTProvider } from "./providers/chatgpt";
 import { MockProvider } from "./providers/mock";
 import { OllamaProvider } from "./providers/ollama";
 import { OpenAIProvider } from "./providers/openai";
@@ -25,6 +27,7 @@ function buildProviders(): Map<AIProviderId, AIProvider> {
   const env = getEnv();
   const map = new Map<AIProviderId, AIProvider>();
   map.set("openai", new OpenAIProvider({ apiKey: env.OPENAI_API_KEY, defaultTimeoutMs: env.AI_TIMEOUT_MS }));
+  if (chatgptOrigin()) map.set("chatgpt", new ChatGPTProvider(env.AI_TIMEOUT_MS));
   map.set("anthropic", new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, defaultTimeoutMs: env.AI_TIMEOUT_MS }));
   map.set(
     "ollama",
@@ -77,6 +80,16 @@ export function listProviderDefinitions(): ProviderDefinition[] {
       suggestedModels: ["llama3.1", "qwen2.5", "mistral"],
     },
   ];
+  if (chatgptOrigin()) {
+    definitions.unshift({
+      id: "chatgpt",
+      displayName: "ChatGPT plan",
+      paid: false,
+      configured: chatgptConnection().connected,
+      configurationHint: "Uses the allowance of the connected ChatGPT account.",
+      suggestedModels: [],
+    });
+  }
   if (env.AI_ENABLE_MOCK_PROVIDER) {
     definitions.push({
       id: "mock",
@@ -91,7 +104,7 @@ export function listProviderDefinitions(): ProviderDefinition[] {
 }
 
 export function isProviderId(value: string): value is AIProviderId {
-  return value === "openai" || value === "anthropic" || value === "ollama" || value === "mock";
+  return value === "openai" || value === "chatgpt" || value === "anthropic" || value === "ollama" || value === "mock";
 }
 
 export function getProvider(id: string): AIProvider {

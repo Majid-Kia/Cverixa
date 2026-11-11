@@ -52,6 +52,7 @@ export async function importResumeDocument(
     task: "profile_import",
     providerId: selection.providerId,
     modelId: selection.modelId,
+    timeoutMs: selection.timeoutMs,
     schema: profileImportAiOutputSchema,
     system: PROFILE_IMPORT_SYSTEM_PROMPT,
     user: buildProfileImportUserPrompt({ text: extracted.text, fileName: file.name }),

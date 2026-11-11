@@ -1,6 +1,6 @@
 import type { ZodType } from "zod";
 
-export type AIProviderId = "openai" | "anthropic" | "ollama" | "mock";
+export type AIProviderId = "openai" | "anthropic" | "ollama" | "mock" | "chatgpt";
 
 export interface AIModel {
   id: string;

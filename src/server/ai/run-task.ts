@@ -14,6 +14,7 @@ export interface RunTaskInput<T> {
   user: string;
   temperature?: number;
   maxOutputTokens?: number;
+  timeoutMs?: number;
 }
 
 /**
@@ -34,6 +35,7 @@ export async function runStructuredTask<T>(input: RunTaskInput<T>): Promise<Stru
       user: input.user,
       temperature: input.temperature,
       maxOutputTokens: input.maxOutputTokens,
+      timeoutMs: input.timeoutMs,
     });
     logger.info("ai.task.completed", {
       task: input.task,

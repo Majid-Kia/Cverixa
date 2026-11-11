@@ -78,7 +78,7 @@ export async function saveProviderSetting(
 export async function resolveProviderSelection(
   ownerId: string,
   override?: { providerId?: string | null; modelId?: string | null },
-): Promise<{ providerId: AIProviderId; modelId: string; paid: boolean }> {
+): Promise<{ providerId: AIProviderId; modelId: string; paid: boolean; timeoutMs?: number }> {
   const settings = await getAISettings(ownerId);
   const providerId = override?.providerId?.trim() || settings.defaultProviderId;
   if (!providerId || !isProviderId(providerId)) {
@@ -99,7 +99,7 @@ export async function resolveProviderSelection(
       "provider_not_configured",
       `${definition.displayName} is not configured: ${definition.configurationHint}`,
     );
-  return { providerId, modelId, paid: definition.paid };
+  return { providerId, modelId, paid: definition.paid, timeoutMs: saved?.configuration.timeoutMs };
 }
 
 export async function checkProviderConnection(providerId: string): Promise<ProviderStatus> {

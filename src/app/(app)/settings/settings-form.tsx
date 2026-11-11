@@ -94,7 +94,9 @@ function ProviderCard({
           <div className="flex items-center gap-2">
             <h3 className="font-semibold">{definition.displayName}</h3>
             {isDefault ? <Badge tone="success">Default</Badge> : null}
-            {definition.paid ? (
+            {definition.id === "chatgpt" ? (
+              <Badge tone="info">Uses ChatGPT plan</Badge>
+            ) : definition.paid ? (
               <Badge tone="warning">Paid usage</Badge>
             ) : (
               <Badge tone="info">No external charges</Badge>
