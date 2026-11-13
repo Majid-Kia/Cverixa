@@ -13,7 +13,7 @@ import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
 import { DEFAULT_TEMPLATE_ID, isTemplateId } from "@/templates";
 import { pageFormatSchema, resumeContentSchema, type PageFormat, type ResumeContent } from "@/types/resume-content";
-import { buildBaselineContent, buildTailoredContent } from "./build-content";
+import { buildBaselineContent, buildChangeReport, buildTailoredContent, preserveExperience } from "./build-content";
 import { matchEvidence } from "./evidence";
 import { applyDecisions, createProposals } from "./proposals";
 import {
@@ -66,6 +66,30 @@ const reviewStateSchema = z.object({
 });
 type ReviewState = z.infer<typeof reviewStateSchema>;
 
+function readReviewState(raw: unknown): ReviewState {
+  const state = reviewStateSchema.parse(raw);
+  const experience = preserveExperience(state.baseline.experience, state.tailored.experience);
+  if (
+    experience.length === state.tailored.experience.length &&
+    experience.every((entry, index) => entry === state.tailored.experience[index])
+  ) {
+    return state;
+  }
+  const tailored = { ...state.tailored, experience };
+  return {
+    ...state,
+    tailored,
+    proposals: createProposals(state.baseline, tailored),
+    changeReport: buildChangeReport({
+      baseline: state.baseline,
+      content: tailored,
+      evidence: state.evidence,
+      rejected: state.changeReport.rejectedClaims,
+      notes: state.changeReport.notes,
+    }),
+  };
+}
+
 /**
  * FR-004/FR-005/FR-006: run the tailoring pipeline. Quick mode saves a new
  * resume version immediately; Review mode stores proposals for the owner to
@@ -115,6 +139,7 @@ export async function generateResume(
       task: "resume_tailoring",
       providerId: selection.providerId,
       modelId: selection.modelId,
+      timeoutMs: selection.timeoutMs,
       schema: tailoringAiOutputSchema,
       system: RESUME_TAILORING_SYSTEM_PROMPT,
       user: buildResumeTailoringUserPrompt({ profile, analysis, evidence, userInstructions: input.userInstructions }),
@@ -242,7 +267,7 @@ export async function getReviewRun(ownerId: string, runId: string): Promise<Revi
     include: { jobDescription: { select: { title: true, company: true } } },
   });
   if (!run || !run.proposal) throw new NotFoundError("Review session not found.");
-  const state = reviewStateSchema.parse(run.proposal);
+  const state = readReviewState(run.proposal);
   return {
     runId: run.id,
     jobDescriptionId: run.jobDescriptionId,
@@ -273,10 +298,12 @@ export async function finalizeReview(
   if (!run || !run.proposal) throw new NotFoundError("Review session not found.");
   if (run.status !== "awaiting_review")
     throw new AppError("review_closed", "This review session has already been completed.");
-  const state = reviewStateSchema.parse(run.proposal);
+  const state = readReviewState(run.proposal);
   const decisions: ProposalDecision[] = z.array(proposalDecisionSchema).parse(decisionsInput);
   const content: ResumeContent = applyDecisions(state.baseline, state.tailored, state.proposals, decisions);
-  const accepted = decisions.filter((decision) => decision.decision === "accept").length;
+  const accepted = state.proposals.filter((proposal) =>
+    decisions.some((decision) => decision.proposalId === proposal.id && decision.decision === "accept"),
+  ).length;
   const metadata: GenerationMetadata = {
     providerId: run.providerId,
     modelId: run.modelId,

@@ -105,12 +105,9 @@ export function applyDecisions(
       case "experience_bullets": {
         const target = result.experience.find((entry) => entry.id === proposal.entryId);
         const source = tailored.experience.find((entry) => entry.id === proposal.entryId);
-        if (!target) break;
-        if (!source) {
-          result.experience = result.experience.filter((entry) => entry.id !== proposal.entryId);
-          break;
-        }
-        target.bullets = mergeBullets(source.bullets, lines, proposal.proposedSourceIds);
+        if (!target || !source) break;
+        const bullets = mergeBullets(source.bullets, lines, proposal.proposedSourceIds);
+        if (bullets.length) target.bullets = bullets;
         break;
       }
       case "project_bullets": {

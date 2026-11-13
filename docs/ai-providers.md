@@ -38,6 +38,12 @@ Errors are normalised into `AIProviderError` categories: `not_configured`, `auth
 
 Per-owner preferences (default provider, model id, optional timeout override) are stored in `AIProviderConfiguration` through the **AI Settings** page. The page shows whether a key is configured but never the key itself.
 
+### Use an existing ChatGPT plan locally
+
+For a local installation, set `APP_URL` to the app's HTTP loopback origin, such as `http://127.0.0.1:3001`, and open the app at that address. In **AI Settings**, choose **Continue with ChatGPT** and grant ChatGPT plan usage on the OpenAI consent screen. Use **Test rewrite** to verify inference with fictional resume text. In the **ChatGPT plan** provider card, load the available models, select one, and save it as the default.
+
+This connection uses the signed-in account's eligible ChatGPT allowance. It is independent of the OpenAI API key provider. Cverixa supports one connected account per local installation and keeps its OAuth credentials under the ignored `data/chatgpt/` directory.
+
 ### Model identifiers
 
 Model ids change over time. The settings page offers **Load models** to fetch the live list from the provider; the suggested starting points are documented defaults only:

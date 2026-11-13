@@ -24,11 +24,11 @@ export class OpenAIProvider implements AIProvider {
 
   constructor(private readonly options: OpenAIProviderOptions) {}
 
-  private client(): OpenAI {
+  private client(timeoutMs = this.options.defaultTimeoutMs): OpenAI {
     if (!this.options.apiKey) {
       throw new AIProviderError("openai", "not_configured", "OPENAI_API_KEY is not configured on the server.");
     }
-    return new OpenAI({ apiKey: this.options.apiKey, timeout: this.options.defaultTimeoutMs, maxRetries: 1 });
+    return new OpenAI({ apiKey: this.options.apiKey, timeout: timeoutMs, maxRetries: 1 });
   }
 
   async listModels(): Promise<AIModel[]> {
@@ -63,8 +63,8 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async generateStructured<T>(request: StructuredGenerationRequest<T>): Promise<StructuredGenerationResult<T>> {
-    const client = this.client();
     const timeoutMs = request.timeoutMs ?? this.options.defaultTimeoutMs;
+    const client = this.client(timeoutMs);
     const started = Date.now();
     try {
       const completion = await withTimeout(
@@ -123,7 +123,14 @@ export function normalizeOpenAIError(error: unknown): AIProviderError {
       return new AIProviderError("openai", "auth", "OpenAI rejected the configured API key.");
     }
     if (status === 429) {
-      return new AIProviderError("openai", "rate_limit", "OpenAI rate limit or quota exceeded. Try again later.", true);
+      if (error.type === "insufficient_quota" || error.code === "insufficient_quota") {
+        return new AIProviderError(
+          "openai",
+          "rate_limit",
+          "OpenAI API quota exhausted. Check your API billing and usage limits.",
+        );
+      }
+      return new AIProviderError("openai", "rate_limit", "OpenAI rate limit reached. Try again later.", true);
     }
     if (status === 404) {
       return new AIProviderError(

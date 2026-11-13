@@ -1,6 +1,8 @@
 import "server-only";
 import { getEnv, isProduction } from "@/lib/env";
+import { chatgptConnection, chatgptOrigin } from "./chatgpt/session";
 import { AnthropicProvider } from "./providers/anthropic";
+import { ChatGPTProvider } from "./providers/chatgpt";
 import { MockProvider } from "./providers/mock";
 import { OllamaProvider } from "./providers/ollama";
 import { OpenAIProvider } from "./providers/openai";
@@ -17,12 +19,15 @@ export interface ProviderDefinition {
   suggestedModels: string[];
 }
 
-const globalForRegistry = globalThis as unknown as { aiProviders?: Map<AIProviderId, AIProvider> };
+// Keep provider instances with their module so route handlers and server actions
+// use the same error constructors as their callers.
+let aiProviders: Map<AIProviderId, AIProvider> | undefined;
 
 function buildProviders(): Map<AIProviderId, AIProvider> {
   const env = getEnv();
   const map = new Map<AIProviderId, AIProvider>();
   map.set("openai", new OpenAIProvider({ apiKey: env.OPENAI_API_KEY, defaultTimeoutMs: env.AI_TIMEOUT_MS }));
+  if (chatgptOrigin()) map.set("chatgpt", new ChatGPTProvider(env.AI_TIMEOUT_MS));
   map.set("anthropic", new AnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY, defaultTimeoutMs: env.AI_TIMEOUT_MS }));
   map.set(
     "ollama",
@@ -42,10 +47,7 @@ function buildProviders(): Map<AIProviderId, AIProvider> {
 }
 
 function providers(): Map<AIProviderId, AIProvider> {
-  if (!globalForRegistry.aiProviders) {
-    globalForRegistry.aiProviders = buildProviders();
-  }
-  return globalForRegistry.aiProviders;
+  return (aiProviders ??= buildProviders());
 }
 
 export function listProviderDefinitions(): ProviderDefinition[] {
@@ -78,6 +80,16 @@ export function listProviderDefinitions(): ProviderDefinition[] {
       suggestedModels: ["llama3.1", "qwen2.5", "mistral"],
     },
   ];
+  if (chatgptOrigin()) {
+    definitions.unshift({
+      id: "chatgpt",
+      displayName: "ChatGPT plan",
+      paid: false,
+      configured: chatgptConnection().connected,
+      configurationHint: "Uses the allowance of the connected ChatGPT account.",
+      suggestedModels: [],
+    });
+  }
   if (env.AI_ENABLE_MOCK_PROVIDER) {
     definitions.push({
       id: "mock",
@@ -92,7 +104,7 @@ export function listProviderDefinitions(): ProviderDefinition[] {
 }
 
 export function isProviderId(value: string): value is AIProviderId {
-  return value === "openai" || value === "anthropic" || value === "ollama" || value === "mock";
+  return value === "openai" || value === "chatgpt" || value === "anthropic" || value === "ollama" || value === "mock";
 }
 
 export function getProvider(id: string): AIProvider {
@@ -108,5 +120,5 @@ export function getProvider(id: string): AIProvider {
 
 /** Test hook: replace the registry (used by integration tests with a custom mock). */
 export function __setProvidersForTests(map: Map<AIProviderId, AIProvider> | undefined) {
-  globalForRegistry.aiProviders = map;
+  aiProviders = map;
 }

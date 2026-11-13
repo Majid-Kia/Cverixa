@@ -3,7 +3,7 @@
  * CI-provided DATABASE_URL. Exercises persistence, generation (mock provider),
  * Review Mode and version history end to end without the UI.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { startTestDatabase, type TestDatabase } from "../helpers/embedded-db";
 import { sampleProfile } from "../fixtures/profiles";
 
@@ -80,12 +80,18 @@ describe("AI settings (FR-011)", () => {
       providerId: "mock",
       modelId: "mock-deterministic-v1",
       makeDefault: true,
+      configuration: { timeoutMs: 360_000 },
     });
     const view = await s.settings.getAISettings(ownerId);
     expect(view.defaultProviderId).toBe("mock");
-    expect(view.settings[0].configuration).toEqual({});
+    expect(view.settings[0].configuration).toEqual({ timeoutMs: 360_000 });
     const selection = await s.settings.resolveProviderSelection(ownerId);
-    expect(selection).toEqual({ providerId: "mock", modelId: "mock-deterministic-v1", paid: false });
+    expect(selection).toEqual({
+      providerId: "mock",
+      modelId: "mock-deterministic-v1",
+      paid: false,
+      timeoutMs: 360_000,
+    });
     await expect(s.settings.resolveProviderSelection(ownerId, { providerId: "openai" })).rejects.toThrow(
       /not configured|No model/,
     );
@@ -94,6 +100,8 @@ describe("AI settings (FR-011)", () => {
 
 describe("job descriptions and analysis (FR-003)", () => {
   it("creates, analyses and invalidates analysis on text change", async () => {
+    const { getProvider } = await import("@/server/ai/registry");
+    using generateStructured = vi.spyOn(getProvider("mock"), "generateStructured");
     const job = await s.jobs.createJobDescription(ownerId, {
       originalText: JOB_TEXT,
       title: "",
@@ -104,6 +112,7 @@ describe("job descriptions and analysis (FR-003)", () => {
     });
     expect(job.analysis).toBeNull();
     const analysed = await s.jobs.analyzeJobDescription(ownerId, job.id);
+    expect(generateStructured).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 360_000 }));
     expect(analysed.analysis?.requirements.length).toBeGreaterThan(2);
     expect(analysed.analysis?.requirements.every((requirement) => requirement.id.startsWith("req_"))).toBe(true);
     expect(analysed.analysisProviderId).toBe("mock");

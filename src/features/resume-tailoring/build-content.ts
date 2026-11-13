@@ -90,27 +90,11 @@ export function buildTailoredContent(input: {
   const baseline = buildBaselineContent(profile);
   const sourceTexts = collectSourceTexts(profile);
 
-  const selectedExperience = aiOutput.experience.filter((entry) =>
-    profile.experience.some((candidate) => candidate.id === entry.id),
-  );
-  const useAiSelection = selectedExperience.length > 0;
-  const experience = profile.experience
-    .filter((entry) => !useAiSelection || selectedExperience.some((selected) => selected.id === entry.id))
-    .map((entry) => {
-      const selected = selectedExperience.find((candidate) => candidate.id === entry.id);
-      const bullets =
-        selected && selected.bullets.length > 0 ? toBullets(selected.bullets, sourceTexts) : originalBullets(entry);
-      return {
-        id: entry.id,
-        employer: entry.employer,
-        title: entry.title,
-        location: entry.location,
-        startDate: entry.startDate,
-        endDate: entry.endDate,
-        technologies: entry.technologies,
-        bullets,
-      };
-    });
+  const experience = baseline.experience.map((entry) => {
+    const selected = aiOutput.experience.find((candidate) => candidate.id === entry.id);
+    const bullets = toBullets(selected?.bullets ?? [], sourceTexts);
+    return bullets.length ? { ...entry, bullets } : entry;
+  });
 
   const selectedProjects = aiOutput.projects.filter((entry) =>
     profile.projects.some((candidate) => candidate.id === entry.id),
@@ -157,14 +141,33 @@ export function buildTailoredContent(input: {
   });
 
   const validation = validateClaims(profile, analysis, draft);
+  const content = {
+    ...validation.content,
+    experience: preserveExperience(baseline.experience, validation.content.experience),
+  };
   const changeReport = buildChangeReport({
     baseline,
-    content: validation.content,
-    aiOutput,
+    content,
+    notes: aiOutput.changeNotes,
     evidence,
     rejected: validation.rejected,
   });
-  return { content: validation.content, changeReport, validationStatus: validation.status };
+  const validationStatus =
+    validation.status === "failed" && content.experience.some((entry) => entry.bullets.length)
+      ? "passed_with_rejections"
+      : validation.status;
+  return { content, changeReport, validationStatus };
+}
+
+/** Keep confirmed roles and use their original bullets when no rewrite survived validation. */
+export function preserveExperience(
+  baseline: ResumeContent["experience"],
+  tailored: ResumeContent["experience"],
+): ResumeContent["experience"] {
+  return baseline.map((entry) => {
+    const proposed = tailored.find((candidate) => candidate.id === entry.id);
+    return proposed?.bullets.length ? proposed : entry;
+  });
 }
 
 function projectBullets(project: ProjectEntry): ResumeBullet[] {
@@ -222,14 +225,14 @@ export function normalizeSectionOrder(order: string[]): ResumeSectionKey[] {
   return unique;
 }
 
-function buildChangeReport(input: {
+export function buildChangeReport(input: {
   baseline: ResumeContent;
   content: ResumeContent;
-  aiOutput: TailoringAiOutput;
+  notes: string[];
   evidence: EvidenceMap;
   rejected: ChangeReport["rejectedClaims"];
 }): ChangeReport {
-  const { baseline, content, aiOutput, evidence, rejected } = input;
+  const { baseline, content, notes, evidence, rejected } = input;
   const allBullets = [...content.experience, ...content.projects].flatMap((entry) => entry.bullets);
   const citedSourceIds = new Set(allBullets.flatMap((bullet) => bullet.sourceIds));
   const removedBullets = [...baseline.experience, ...baseline.projects]
@@ -261,6 +264,6 @@ function buildChangeReport(input: {
     sectionOrder: content.sectionOrder,
     rejectedClaims: rejected,
     missingRequirements: missingRequirementSummaries(evidence),
-    notes: aiOutput.changeNotes.slice(0, 20),
+    notes: notes.slice(0, 20),
   };
 }

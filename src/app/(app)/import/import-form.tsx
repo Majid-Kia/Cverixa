@@ -18,7 +18,7 @@ export function ImportForm({
 }) {
   const [state, action] = useActionState(uploadResumeAction, initialActionState);
   return (
-    <form action={action} className="space-y-4" encType="multipart/form-data">
+    <form action={action} className="space-y-4">
       <Field label="Resume file" htmlFor="file" hint={`PDF or DOCX, up to ${maxSizeMb} MB.`}>
         <Input
           id="file"
