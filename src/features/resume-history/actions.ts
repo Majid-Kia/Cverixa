@@ -7,7 +7,29 @@ import { AppError } from "@/lib/errors";
 import { saveEditedRevision } from "@/features/resume-tailoring/service";
 import { requireUser } from "@/server/security/session";
 import { pageFormatSchema } from "@/types/resume-content";
-import { deleteResume, duplicateRevision, renameResume, restoreRevision } from "./service";
+import type { ApplicationStatus } from "./application-status";
+import { deleteResume, duplicateRevision, renameResume, restoreRevision, setApplicationStatus } from "./service";
+
+/**
+ * Save an application status chosen in the resume list. Returns the stored
+ * status, or an error message the list shows while it restores the previous
+ * selection.
+ */
+export async function setApplicationStatusAction(
+  resumeId: string,
+  status: string,
+): Promise<{ ok: true; status: ApplicationStatus } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    const saved = await setApplicationStatus(user.id, String(resumeId ?? ""), status);
+    // Keeps the list and the client cache in step, so the status is right after navigating back.
+    revalidatePath("/resumes");
+    return { ok: true, status: saved };
+  } catch (error) {
+    if (error instanceof AppError) return { ok: false, error: error.message };
+    return { ok: false, error: "The status could not be saved." };
+  }
+}
 
 export async function restoreRevisionAction(formData: FormData): Promise<void> {
   const user = await requireUser();

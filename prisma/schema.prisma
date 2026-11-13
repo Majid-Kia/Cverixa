@@ -112,13 +112,15 @@ model JobDescription {
 }
 
 model Resume {
-  id               String   @id @default(cuid())
-  ownerId          String
-  careerProfileId  String
-  jobDescriptionId String?
-  title            String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                String   @id @default(cuid())
+  ownerId           String
+  careerProfileId   String
+  jobDescriptionId  String?
+  title             String
+  /// Manual application tracking: pending | interview | rejected. Belongs to the resume, not to a version.
+  applicationStatus String   @default("pending")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   careerProfile  CareerProfile   @relation(fields: [careerProfileId], references: [id], onDelete: Cascade)

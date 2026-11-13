@@ -340,3 +340,58 @@ describe("application brief, selected project and question (Review Mode)", () =>
     expect(third.run.brief?.question?.signal).not.toBe("customer_contact");
   });
 });
+
+describe("manual application tracking", () => {
+  it("defaults to pending, saves per resume and survives new versions", async () => {
+    const before = await s.history.listResumes(ownerId);
+    expect(before.length).toBeGreaterThanOrEqual(3);
+    expect(before.every((resume) => resume.applicationStatus === "pending")).toBe(true);
+    const [first, second, third] = before;
+
+    expect(await s.history.setApplicationStatus(ownerId, first.id, "interview")).toBe("interview");
+    expect(await s.history.setApplicationStatus(ownerId, third.id, "rejected")).toBe("rejected");
+
+    const after = await s.history.listResumes(ownerId);
+    const statusOf = (id: string) => after.find((resume) => resume.id === id)?.applicationStatus;
+    expect(statusOf(first.id)).toBe("interview");
+    expect(statusOf(second.id)).toBe("pending");
+    expect(statusOf(third.id)).toBe("rejected");
+    // Every other resume is untouched, and tracking does not count as an edit or reorder the list.
+    expect(after.filter((resume) => resume.applicationStatus === "pending")).toHaveLength(before.length - 2);
+    expect(after.map((resume) => resume.id)).toEqual(before.map((resume) => resume.id));
+    expect(after.find((resume) => resume.id === first.id)?.updatedAt).toEqual(first.updatedAt);
+
+    // The status belongs to the resume: adding, restoring or opening versions keeps it.
+    const resume = await s.history.getResume(ownerId, first.id);
+    const edited = await s.tailoring.saveEditedRevision(ownerId, first.id, {
+      templateId: "engineering-modern",
+      pageFormat: "A4",
+      content: resume.revisions[0].content,
+    });
+    await s.history.restoreRevision(ownerId, resume.revisions[0].id);
+    const reopened = await s.history.getResume(ownerId, first.id);
+    expect(reopened.revisions.length).toBe(resume.revisions.length + 2);
+    expect(reopened.revisions.some((revision) => revision.id === edited.id)).toBe(true);
+    expect(reopened.applicationStatus).toBe("interview");
+    expect((await s.history.listResumes(ownerId)).find((item) => item.id === first.id)?.applicationStatus).toBe(
+      "interview",
+    );
+
+    // A duplicate is a new resume and starts as pending.
+    const copy = await s.history.duplicateRevision(ownerId, edited.id);
+    expect((await s.history.getResume(ownerId, copy.resumeId)).applicationStatus).toBe("pending");
+    await s.history.deleteResume(ownerId, copy.resumeId);
+  });
+
+  it("rejects unknown statuses and other owners, leaving the saved status in place", async () => {
+    const [first] = await s.history.listResumes(ownerId);
+    const saved = (await s.history.getResume(ownerId, first.id)).applicationStatus;
+    await expect(s.history.setApplicationStatus(ownerId, first.id, "offer")).rejects.toThrow(
+      /Pending, Interview or Rejected/,
+    );
+    const other = await s.prisma.user.findUniqueOrThrow({ where: { email: "other@example.com" } });
+    await expect(s.history.setApplicationStatus(other.id, first.id, "rejected")).rejects.toThrow(/not found/i);
+    await expect(s.history.setApplicationStatus(ownerId, "missing", "rejected")).rejects.toThrow(/not found/i);
+    expect((await s.history.getResume(ownerId, first.id)).applicationStatus).toBe(saved);
+  });
+});

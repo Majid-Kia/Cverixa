@@ -4,18 +4,18 @@ Schema: [prisma/schema.prisma](../prisma/schema.prisma). Migrations: `prisma/mig
 
 ## Entities
 
-| Entity                    | Purpose                             | Notes                                                                                                                                                    |
-| ------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `User`                    | The owner account                   | Single user in the MVP; `ownerId` on every entity keeps the multi-user boundary ready                                                                    |
-| `Session`                 | Login session                       | Stores a SHA-256 hash of the cookie token, expiry, cascade on user delete                                                                                |
-| `CareerProfile`           | The Master Career Profile container | `currentRevisionId` points to the active revision                                                                                                        |
-| `CareerProfileRevision`   | Immutable profile snapshot          | `structuredData` = `CareerProfileData` (schemaVersion 1); `confirmedAt` set only when the owner confirmed                                                |
-| `ImportSession`           | Pending import awaiting review      | Draft `structuredData` with every entry `status: imported`, plus `warnings`; deleted on confirm/discard                                                  |
-| `JobDescription`          | Pasted job posting                  | `structuredRequirements` = `JobAnalysis`; cleared when the text changes; provider/model/analysedAt recorded                                              |
-| `Resume`                  | A resume for one job (or manual)    | Links `careerProfileId` and optional `jobDescriptionId`                                                                                                  |
-| `ResumeRevision`          | Immutable resume version            | `content` = `ResumeContent`, `templateId`, `pageFormat`, `careerProfileRevisionId`, `changeReport`, `generationMetadata`, `validationStatus`             |
-| `GenerationRun`           | One tailoring execution             | provider, model, mode, template, status (`running`, `awaiting_review`, `completed`, `failed`), `failureReason`, Review Mode `proposal` state, result ids |
-| `AIProviderConfiguration` | Non-secret provider preferences     | `providerId`, `modelId`, `isDefault`, `configuration` (timeout). API keys are never stored                                                               |
+| Entity                    | Purpose                             | Notes                                                                                                                                                                                                  |
+| ------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `User`                    | The owner account                   | Single user in the MVP; `ownerId` on every entity keeps the multi-user boundary ready                                                                                                                  |
+| `Session`                 | Login session                       | Stores a SHA-256 hash of the cookie token, expiry, cascade on user delete                                                                                                                              |
+| `CareerProfile`           | The Master Career Profile container | `currentRevisionId` points to the active revision                                                                                                                                                      |
+| `CareerProfileRevision`   | Immutable profile snapshot          | `structuredData` = `CareerProfileData` (schemaVersion 1); `confirmedAt` set only when the owner confirmed                                                                                              |
+| `ImportSession`           | Pending import awaiting review      | Draft `structuredData` with every entry `status: imported`, plus `warnings`; deleted on confirm/discard                                                                                                |
+| `JobDescription`          | Pasted job posting                  | `structuredRequirements` = `JobAnalysis`; cleared when the text changes; provider/model/analysedAt recorded                                                                                            |
+| `Resume`                  | A resume for one job (or manual)    | Links `careerProfileId` and optional `jobDescriptionId`; `applicationStatus` (`pending`, `interview`, `rejected`; default `pending`) is set by the owner in the resume list and shared by all versions |
+| `ResumeRevision`          | Immutable resume version            | `content` = `ResumeContent`, `templateId`, `pageFormat`, `careerProfileRevisionId`, `changeReport`, `generationMetadata`, `validationStatus`                                                           |
+| `GenerationRun`           | One tailoring execution             | provider, model, mode, template, status (`running`, `awaiting_review`, `completed`, `failed`), `failureReason`, Review Mode `proposal` state, result ids                                               |
+| `AIProviderConfiguration` | Non-secret provider preferences     | `providerId`, `modelId`, `isDefault`, `configuration` (timeout). API keys are never stored                                                                                                             |
 
 ## Structured content
 
