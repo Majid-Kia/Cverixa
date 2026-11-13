@@ -6,7 +6,7 @@ import {
   normalizeSectionOrder,
 } from "@/features/resume-tailoring/build-content";
 import { matchEvidence } from "@/features/resume-tailoring/evidence";
-import type { TailoringAiOutput } from "@/features/resume-tailoring/schema";
+import { tailoringAiOutputSchema, type TailoringAiOutput } from "@/features/resume-tailoring/schema";
 import { sampleJobAnalysis, sampleProfile } from "../fixtures/profiles";
 
 describe("buildTailoredContent (Stages 4-6)", () => {
@@ -14,7 +14,7 @@ describe("buildTailoredContent (Stages 4-6)", () => {
   const analysis = sampleJobAnalysis();
   const evidence = matchEvidence(profile, analysis);
 
-  const goodOutput: TailoringAiOutput = {
+  const goodOutput: TailoringAiOutput = tailoringAiOutputSchema.parse({
     summary: {
       text: "Senior frontend engineer who reduced dashboard load time by 40% and mentors engineers.",
       sourceIds: ["ach_acme_1", "stmt_acme_2"],
@@ -46,7 +46,7 @@ describe("buildTailoredContent (Stages 4-6)", () => {
     skillIds: ["skill_ts", "skill_react", "skill_graphql"],
     sectionOrder: ["summary", "skills", "experience", "projects"],
     changeNotes: ["Prioritised React and TypeScript."],
-  };
+  });
 
   it("builds validated content and a change report", () => {
     const result = buildTailoredContent({ profile, analysis, evidence, aiOutput: goodOutput });
@@ -60,7 +60,14 @@ describe("buildTailoredContent (Stages 4-6)", () => {
       "skill_graphql",
     ]);
     expect(result.content.skills.length).toBe(profile.skills.length);
-    expect(result.content.sectionOrder.slice(0, 4)).toEqual(["summary", "skills", "experience", "projects"]);
+    expect(result.content.sectionOrder.slice(0, 5)).toEqual([
+      "summary",
+      "featured",
+      "skills",
+      "experience",
+      "projects",
+    ]);
+    expect(result.content.featured).toBeNull();
     expect(result.changeReport.summaryChanged).toBe(true);
     expect(result.changeReport.rewordedBullets).toBe(1);
     expect(result.changeReport.removedBullets).toContain(
@@ -145,6 +152,7 @@ describe("buildTailoredContent (Stages 4-6)", () => {
 
   it("normalises section order", () => {
     expect(normalizeSectionOrder(["skills", "bogus", "skills"])[0]).toBe("skills");
-    expect(normalizeSectionOrder([]).length).toBe(8);
+    expect(normalizeSectionOrder([]).length).toBe(9);
+    expect(normalizeSectionOrder(["skills", "summary"]).slice(0, 3)).toEqual(["skills", "summary", "featured"]);
   });
 });

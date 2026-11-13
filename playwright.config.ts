@@ -24,7 +24,16 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", testMatch: /workflow.spec.ts$/, use: { ...devices["Desktop Chrome"] } },
+    {
+      // Uses the owner and default provider set up by the workflow tests, then replaces the profile.
+      name: "application-reviews",
+      testMatch: /application-reviews.spec.ts$/,
+      dependencies: ["chromium"],
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
   webServer: {
     command: `pnpm exec next start -p ${E2E_PORT}`,
     url: `${E2E_BASE_URL}/login`,

@@ -145,6 +145,59 @@ test("review mode shows proposals and creates a resume from accepted changes", a
   await expect(page.getByRole("listitem").filter({ hasText: "Senior Frontend Engineer @ Globex" })).toHaveCount(2);
 });
 
+test("application status is set from the resume list, saved per resume and restored when saving fails", async ({
+  page,
+}) => {
+  await login(page);
+  await page.goto("/resumes");
+  const statuses = page.getByRole("combobox", { name: /^Application status for / });
+  const savedOnServer = () =>
+    page.waitForResponse((response) => response.request().method() === "POST" && /\/resumes$/.test(response.url()));
+
+  // Existing resumes start as Pending and offer exactly the three statuses.
+  await expect(statuses).toHaveCount(2);
+  await expect(statuses.nth(0)).toHaveValue("pending");
+  await expect(statuses.nth(1)).toHaveValue("pending");
+  await expect(statuses.nth(0).locator("option")).toHaveText(["Pending", "Interview", "Rejected"]);
+
+  // Changing one row saves immediately, survives a reload and leaves the other row alone.
+  let saved = savedOnServer();
+  await statuses.nth(0).selectOption("interview");
+  await saved;
+  await page.reload();
+  await expect(statuses.nth(0)).toHaveValue("interview");
+  await expect(statuses.nth(1)).toHaveValue("pending");
+
+  saved = savedOnServer();
+  await statuses.nth(1).selectOption("rejected");
+  await saved;
+  await page.reload();
+  await expect(statuses.nth(0)).toHaveValue("interview");
+  await expect(statuses.nth(1)).toHaveValue("rejected");
+
+  // A failed save shows an error and goes back to the last saved status.
+  await page.route(/\/resumes$/, (route) => (route.request().method() === "POST" ? route.abort() : route.continue()));
+  await statuses.nth(0).selectOption("rejected");
+  await expect(page.getByRole("alert").filter({ hasText: "Status not saved" })).toContainText("It is still Interview.");
+  await expect(statuses.nth(0)).toHaveValue("interview");
+  await page.unroute(/\/resumes$/);
+  await page.reload();
+  await expect(statuses.nth(0)).toHaveValue("interview");
+  await expect(statuses.nth(1)).toHaveValue("rejected");
+
+  // The status belongs to the resume: saving a new version of it keeps the status.
+  await page
+    .getByRole("link", { name: /Senior Frontend Engineer @ Globex/ })
+    .first()
+    .click();
+  await page.getByLabel("Template").selectOption("jake-inspired");
+  await page.getByRole("button", { name: "Save as new version" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /Saved as version \d+/ })).toBeVisible();
+  await page.goto("/resumes");
+  await expect(statuses.nth(0)).toHaveValue("interview");
+  await expect(statuses.nth(1)).toHaveValue("rejected");
+});
+
 test("sign out ends the session", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "Sign out", exact: true }).first().click();

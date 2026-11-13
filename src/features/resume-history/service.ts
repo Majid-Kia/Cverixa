@@ -10,6 +10,7 @@ import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
 import { isTemplateId, DEFAULT_TEMPLATE_ID } from "@/templates";
 import { pageFormatSchema, resumeContentSchema, type PageFormat, type ResumeContent } from "@/types/resume-content";
+import { applicationStatusSchema, DEFAULT_APPLICATION_STATUS, type ApplicationStatus } from "./application-status";
 
 export interface ResumeRevisionView {
   id: string;
@@ -36,6 +37,8 @@ export interface ResumeSummaryView {
   latestValidationStatus: string;
   latestProvider: string;
   latestModel: string;
+  /** Set by the owner; shared by every version of the resume. */
+  applicationStatus: ApplicationStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -98,6 +101,7 @@ export async function listResumes(ownerId: string, limit = 50): Promise<ResumeSu
       latestValidationStatus: latest?.validationStatus ?? "unknown",
       latestProvider: metadata?.success ? metadata.data.providerId : "",
       latestModel: metadata?.success ? metadata.data.modelId : "",
+      applicationStatus: applicationStatusSchema.catch(DEFAULT_APPLICATION_STATUS).parse(row.applicationStatus),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };
@@ -117,6 +121,7 @@ export async function getResume(ownerId: string, resumeId: string) {
     id: row.id,
     title: row.title,
     careerProfileId: row.careerProfileId,
+    applicationStatus: applicationStatusSchema.catch(DEFAULT_APPLICATION_STATUS).parse(row.applicationStatus),
     jobDescription: row.jobDescription,
     revisions: row.revisions.map(toRevisionView),
     createdAt: row.createdAt,
@@ -250,6 +255,28 @@ export async function renameResume(ownerId: string, resumeId: string, title: str
   const trimmed = title.trim();
   if (!trimmed) throw new AppError("invalid_title", "Title is required.");
   await prisma.resume.updateMany({ where: { id: resumeId, ownerId }, data: { title: trimmed.slice(0, 200) } });
+}
+
+/**
+ * Set the application status of a resume. It is stored on the resume, so it
+ * stays the same whichever version is opened and when new versions are added.
+ * `updatedAt` is left alone: tracking an application is not an edit, and the
+ * list should not reorder under the owner's hands.
+ */
+export async function setApplicationStatus(
+  ownerId: string,
+  resumeId: string,
+  status: unknown,
+): Promise<ApplicationStatus> {
+  const parsed = applicationStatusSchema.safeParse(status);
+  if (!parsed.success) throw new AppError("invalid_status", "Choose Pending, Interview or Rejected.");
+  const resume = await prisma.resume.findFirst({ where: { id: resumeId, ownerId }, select: { updatedAt: true } });
+  if (!resume) throw new NotFoundError("Resume not found.");
+  await prisma.resume.update({
+    where: { id: resumeId },
+    data: { applicationStatus: parsed.data, updatedAt: resume.updatedAt },
+  });
+  return parsed.data;
 }
 
 export async function deleteResume(ownerId: string, resumeId: string): Promise<void> {

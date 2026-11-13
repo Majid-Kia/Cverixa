@@ -1,4 +1,4 @@
-import type { PageFormat, ResumeContent, ResumeSectionKey } from "@/types/resume-content";
+import type { PageFormat, ResumeContent, ResumeFeatured, ResumeSectionKey } from "@/types/resume-content";
 
 export type TemplateId = "classic-clear" | "jake-inspired" | "engineering-modern";
 
@@ -82,19 +82,37 @@ export function contactItems(content: ResumeContent): string[] {
   return items;
 }
 
-/** Group skills by category preserving the first-seen order of categories and skills. */
+/**
+ * Group skills by category preserving the first-seen order of categories and
+ * skills. Category labels that differ only in case or spacing ("Frontend",
+ * "frontend ") share one row so the same label is never printed twice.
+ */
 export function groupSkills(content: ResumeContent): Array<{ category: string; skills: string[] }> {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, { category: string; skills: string[] }>();
   for (const skill of content.skills) {
-    const category = skill.category || "General";
-    if (!groups.has(category)) groups.set(category, []);
-    groups.get(category)!.push(skill.name);
+    const category = (skill.category || "General").trim() || "General";
+    const key = category.toLowerCase().replace(/\s+/g, " ");
+    if (!groups.has(key)) groups.set(key, { category, skills: [] });
+    groups.get(key)!.skills.push(skill.name);
   }
-  return [...groups.entries()].map(([category, skills]) => ({ category, skills }));
+  return [...groups.values()];
+}
+
+/**
+ * Header lines for the selected project. The heading is the project title when
+ * there is one; the role, employer and dates it was done in always follow so
+ * the work stays attributed to its source.
+ */
+export function featuredHeader(featured: ResumeFeatured): { heading: string; sub: string; dates: string } {
+  const heading = featured.title || featured.subtitle;
+  const sub = featured.title ? featured.subtitle : "";
+  const dates = featured.startDate || featured.endDate ? dateRange(featured.startDate, featured.endDate) : "";
+  return { heading: esc(heading), sub: esc(sub), dates };
 }
 
 export const SECTION_TITLES: Record<ResumeSectionKey, string> = {
   summary: "Professional Summary",
+  featured: "Selected Project",
   experience: "Professional Experience",
   skills: "Skills",
   projects: "Projects",

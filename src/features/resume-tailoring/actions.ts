@@ -44,7 +44,10 @@ export async function finalizeReviewAction(_previous: ActionState, formData: For
     const runId = String(formData.get("runId") ?? "");
     const raw = formData.get("decisions");
     if (!runId || typeof raw !== "string") return failure("Missing review decisions.");
-    const result = await finalizeReview(user.id, runId, JSON.parse(raw));
+    const result = await finalizeReview(user.id, runId, JSON.parse(raw), {
+      text: String(formData.get("answer") ?? "").slice(0, 1000),
+      saveToProfile: formData.get("saveAnswer") === "1",
+    });
     resumeId = result.resumeId;
   } catch (error) {
     if (error instanceof AppError) return failure(error.message);
@@ -52,6 +55,7 @@ export async function finalizeReviewAction(_previous: ActionState, formData: For
   }
   revalidatePath("/resumes");
   revalidatePath("/dashboard");
+  revalidatePath("/profile");
   redirect(`/resumes/${resumeId}?generated=1`);
 }
 

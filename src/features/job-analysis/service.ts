@@ -7,6 +7,7 @@ import { runStructuredTask } from "@/server/ai/run-task";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
+import { isVerbatim } from "./application-context";
 import {
   jobAnalysisAiOutputSchema,
   jobAnalysisSchema,
@@ -159,6 +160,25 @@ export async function analyzeJobDescription(
         .filter(Boolean)
         .slice(0, 20),
     })),
+    // Keep only items the posting states word for word; ids are assigned here.
+    applicationRequirements: result.data.applicationRequirements
+      .filter((item) => isVerbatim(job.originalText, item.supportingText))
+      .slice(0, 10)
+      .map((item) => ({
+        ...item,
+        id: newId("apply"),
+        description: item.description.slice(0, 500),
+        supportingText: item.supportingText.slice(0, 1000),
+      })),
+    logistics: result.data.logistics
+      .filter((item) => isVerbatim(job.originalText, item.supportingText))
+      .slice(0, 10)
+      .map((item) => ({
+        ...item,
+        id: newId("logistics"),
+        description: item.description.slice(0, 500),
+        supportingText: item.supportingText.slice(0, 1000),
+      })),
   });
   const row = await prisma.jobDescription.update({
     where: { id },

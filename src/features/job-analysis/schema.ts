@@ -27,6 +27,47 @@ export const requirementSchema = z.object({
 });
 export type JobRequirement = z.infer<typeof requirementSchema>;
 
+/** Something the posting explicitly asks the applicant to submit or do when applying. */
+export const applicationRequirementKindSchema = z.enum([
+  "project_note",
+  "portfolio",
+  "cover_letter",
+  "application_question",
+  "other",
+]);
+export type ApplicationRequirementKind = z.infer<typeof applicationRequirementKindSchema>;
+
+export const applicationRequirementSchema = z.object({
+  id: z.string().min(1),
+  kind: applicationRequirementKindSchema,
+  description: z.string().trim().min(1).max(500),
+  /** Verbatim text from the job description. Items without it are discarded. */
+  supportingText: z.string().trim().max(1000).default(""),
+});
+export type ApplicationRequirement = z.infer<typeof applicationRequirementSchema>;
+
+/** A stated office-attendance, location or relocation requirement. */
+export const logisticsKindSchema = z.enum(["office", "relocation"]);
+export type LogisticsKind = z.infer<typeof logisticsKindSchema>;
+
+export const logisticsItemSchema = z.object({
+  id: z.string().min(1),
+  kind: logisticsKindSchema,
+  description: z.string().trim().min(1).max(500),
+  supportingText: z.string().trim().max(1000).default(""),
+});
+export type LogisticsItem = z.infer<typeof logisticsItemSchema>;
+
+/**
+ * Sponsorship and work eligibility. `unknown` means the posting says nothing
+ * about it; it is never inferred from the location or the company.
+ */
+export const eligibilitySchema = z.object({
+  status: z.enum(["stated", "unknown"]).default("unknown"),
+  statements: z.array(z.string().trim().max(1000)).default([]),
+});
+export type Eligibility = z.infer<typeof eligibilitySchema>;
+
 /** Validated, persisted analysis of a job description. */
 export const jobAnalysisSchema = z.object({
   schemaVersion: z.literal(JOB_ANALYSIS_SCHEMA_VERSION).default(JOB_ANALYSIS_SCHEMA_VERSION),
@@ -34,6 +75,9 @@ export const jobAnalysisSchema = z.object({
   seniority: z.string().trim().max(100).default(""),
   summary: z.string().trim().max(2000).default(""),
   requirements: z.array(requirementSchema).default([]),
+  /** Model-extracted items, kept only when their supporting text is verbatim in the posting. */
+  applicationRequirements: z.array(applicationRequirementSchema).default([]),
+  logistics: z.array(logisticsItemSchema).default([]),
 });
 export type JobAnalysis = z.infer<typeof jobAnalysisSchema>;
 
@@ -54,6 +98,24 @@ export const jobAnalysisAiOutputSchema = z.object({
         classification: z.enum(["mandatory", "preferred"]).default("preferred"),
         supportingText: z.string().default(""),
         relatedSkills: z.array(z.string()).default([]),
+      }),
+    )
+    .default([]),
+  applicationRequirements: z
+    .array(
+      z.object({
+        kind: applicationRequirementKindSchema.catch("other"),
+        description: z.string().min(1),
+        supportingText: z.string().default(""),
+      }),
+    )
+    .default([]),
+  logistics: z
+    .array(
+      z.object({
+        kind: logisticsKindSchema.catch("office"),
+        description: z.string().min(1),
+        supportingText: z.string().default(""),
       }),
     )
     .default([]),

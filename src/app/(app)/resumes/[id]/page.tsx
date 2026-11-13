@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Alert, Badge, Card, CardTitle, PageHeader, StatusBadge } from "@/components/ui/card";
 import { deleteResumeAction, duplicateRevisionAction, restoreRevisionAction } from "@/features/resume-history/actions";
+import { ApplicationChecklistCard, ScreeningCriteriaCard } from "@/features/resume-tailoring/application-brief-cards";
 import { getResume } from "@/features/resume-history/service";
 import { ResumeEditor } from "@/features/resume-rendering/resume-editor";
 import { NotFoundError } from "@/lib/errors";
@@ -35,6 +36,7 @@ export default async function ResumePage({
   if (!revision) notFound();
   const isLatest = revision.id === resume.revisions[0].id;
   const report = revision.changeReport;
+  const brief = report?.brief ?? null;
 
   return (
     <>
@@ -97,6 +99,28 @@ export default async function ResumePage({
         }}
         templates={templateOptions()}
       />
+
+      {brief ? (
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <ScreeningCriteriaCard brief={brief} />
+            {brief.question ? (
+              <Card>
+                <CardTitle>Open question</CardTitle>
+                <p className="text-sm">{brief.question.text}</p>
+                <p className="text-muted mt-1 text-xs">
+                  About {brief.question.entryLabel}. If you have this detail, add it to that entry in your{" "}
+                  <Link href="/profile" className="text-primary hover:underline">
+                    Master Career Profile
+                  </Link>{" "}
+                  or answer it in Review Mode; it is never filled in for you.
+                </p>
+              </Card>
+            ) : null}
+          </div>
+          <ApplicationChecklistCard brief={brief} />
+        </div>
+      ) : null}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card>

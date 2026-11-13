@@ -42,6 +42,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       template: templateId,
       pages: result.pageCount,
       durationMs: result.durationMs,
+      qualityWarnings: result.qualityWarnings.map((warning) => warning.code).join(",") || null,
     });
     const safeName = `${revision.content.personal.fullName || "resume"}-v${revision.version}`.replace(/[^\w.-]+/g, "_");
     return new NextResponse(Buffer.from(result.pdf), {
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         "content-disposition": `attachment; filename="${safeName}.pdf"`,
         "cache-control": "private, no-store",
         "x-resume-pages": String(result.pageCount),
+        "x-resume-warnings": String(result.qualityWarnings.length),
       },
     });
   } catch (error) {

@@ -20,7 +20,7 @@ export const resumeBulletSchema = z.object({
   /** Ids of confirmed profile statements/achievements this bullet is derived from. */
   sourceIds: z.array(z.string()).default([]),
   /** How the bullet relates to its sources. */
-  kind: z.enum(["original", "reworded", "composed"]).default("original"),
+  kind: z.enum(["original", "reworded", "composed", "user_provided"]).default("original"),
 });
 export type ResumeBullet = z.infer<typeof resumeBulletSchema>;
 
@@ -56,8 +56,29 @@ export const resumeSkillSchema = z.object({
 });
 export type ResumeSkill = z.infer<typeof resumeSkillSchema>;
 
+/**
+ * One project brought forward to the first page. It is always taken from a
+ * single confirmed role or project and keeps that source visible; its bullets
+ * are moved out of the source entry, never repeated.
+ */
+export const resumeFeaturedSchema = z.object({
+  /** Id of the confirmed profile role or project this entry is taken from. */
+  entryId: z.string().min(1),
+  entryKind: z.enum(["experience", "project"]),
+  title: z.string().trim().max(200).default(""),
+  /** Source line copied from the profile, e.g. "Frontend Engineer, Ledgerline". */
+  subtitle: z.string().trim().max(400).default(""),
+  startDate: z.string().trim().max(40).default(""),
+  endDate: z.string().trim().max(40).default(""),
+  description: z.string().trim().max(2000).default(""),
+  technologies: z.array(z.string().trim().max(100)).default([]),
+  bullets: z.array(resumeBulletSchema).default([]),
+});
+export type ResumeFeatured = z.infer<typeof resumeFeaturedSchema>;
+
 export const resumeSectionKeySchema = z.enum([
   "summary",
+  "featured",
   "experience",
   "skills",
   "projects",
@@ -70,6 +91,7 @@ export type ResumeSectionKey = z.infer<typeof resumeSectionKeySchema>;
 
 export const DEFAULT_SECTION_ORDER: ResumeSectionKey[] = [
   "summary",
+  "featured",
   "experience",
   "skills",
   "projects",
@@ -88,6 +110,7 @@ export const resumeContentSchema = z.object({
   }),
   sectionOrder: z.array(resumeSectionKeySchema).default(DEFAULT_SECTION_ORDER),
   hiddenSections: z.array(resumeSectionKeySchema).default([]),
+  featured: resumeFeaturedSchema.nullable().default(null),
   experience: z.array(resumeExperienceSchema).default([]),
   skills: z.array(resumeSkillSchema).default([]),
   projects: z.array(resumeProjectSchema).default([]),
@@ -103,6 +126,7 @@ export type PageFormat = z.infer<typeof pageFormatSchema>;
 
 export const SECTION_LABELS: Record<ResumeSectionKey, string> = {
   summary: "Summary",
+  featured: "Selected project",
   experience: "Experience",
   skills: "Skills",
   projects: "Projects",
@@ -125,6 +149,8 @@ export function sectionHasContent(content: ResumeContent, key: ResumeSectionKey)
   switch (key) {
     case "summary":
       return content.summary.text.trim().length > 0;
+    case "featured":
+      return Boolean(content.featured && (content.featured.bullets.length > 0 || content.featured.description));
     case "experience":
       return content.experience.length > 0;
     case "skills":

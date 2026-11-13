@@ -1,4 +1,5 @@
 import { findTechKeywords, containsTerm } from "@/features/job-analysis/keywords";
+import { conceptsIn } from "@/features/resume-tailoring/evidence";
 import type { CareerProfileData } from "@/features/career-profile/schema";
 import type { JobAnalysis } from "@/features/job-analysis/schema";
 import { DATA_TAGS, readDataBlock } from "../prompts/tags";
@@ -110,6 +111,7 @@ export function mockJobAnalysis(text: string) {
       relatedSkills: ["leadership", "mentoring"],
     });
   }
+  requirements.push(...mockRoleRequirements(lines));
   if (requirements.length === 0) {
     requirements.push({
       category: "responsibility",
@@ -130,6 +132,50 @@ export function mockJobAnalysis(text: string) {
     summary: `Mock analysis derived from ${keywords.length} recognised technical terms.`,
     requirements,
   };
+}
+
+const LIST_MARKER = /^(?:[-*•·]|\d+[.)])\s+/;
+const SKIPPED_HEADINGS = /apply|benefit|offer|perks|about us|location|process|compensation|salary/i;
+const MANDATORY_HEADINGS = /require|must|looking for|you have|about you|qualification|who you are|you bring/i;
+const OPTIONAL_HEADINGS = /nice to have|bonus|preferred|plus/i;
+
+/**
+ * Turn the posting's bullet lines into role requirements so the mock analysis
+ * covers what the role is hired to do, not only the technologies it names.
+ * Lines under "how to apply", benefits or location headings are left to the
+ * application-context extraction.
+ */
+function mockRoleRequirements(lines: string[]) {
+  const requirements: Array<{
+    category: string;
+    description: string;
+    priority: string;
+    classification: string;
+    supportingText: string;
+    relatedSkills: string[];
+  }> = [];
+  let heading = "";
+  for (const line of lines) {
+    if (!LIST_MARKER.test(line)) {
+      if (line.length <= 60 && !/[.!?]$/.test(line)) heading = line;
+      continue;
+    }
+    const text = line.replace(LIST_MARKER, "").trim();
+    if (text.length < 20 || text.length > 300 || SKIPPED_HEADINGS.test(heading)) continue;
+    // Short technology lists are already covered by the keyword requirements.
+    if (findTechKeywords(text).length > 0 && text.split(/\s+/).length <= 8) continue;
+    const optional = OPTIONAL_HEADINGS.test(heading);
+    requirements.push({
+      category: conceptsIn(text).some((group) => group.kind === "domain") ? "domain_knowledge" : "responsibility",
+      description: text.replace(/[.;]$/, ""),
+      priority: optional ? "low" : "high",
+      classification: !optional && MANDATORY_HEADINGS.test(heading) ? "mandatory" : "preferred",
+      supportingText: text,
+      relatedSkills: [],
+    });
+    if (requirements.length >= 12) break;
+  }
+  return requirements;
 }
 
 export function mockTailoring(profile: CareerProfileData | null, analysis: JobAnalysis | null) {

@@ -1,5 +1,6 @@
 import "server-only";
 import { AppError, NotFoundError } from "@/lib/errors";
+import { newId } from "@/lib/ids";
 import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
 import { careerProfileDataSchema, emptyProfile, type CareerProfileData } from "./schema";
@@ -78,6 +79,38 @@ export async function saveProfileRevision(
     data: parsed.data,
     updatedAt: revision.createdAt,
   };
+}
+
+/**
+ * Add one statement, written by the owner, to a confirmed role (as an
+ * achievement) or project (as an outcome) and store it as a new confirmed
+ * revision. Used when the owner answers a tailoring question and chooses to
+ * keep the answer. Returns null when the profile is unconfirmed or the entry
+ * no longer exists.
+ */
+export async function appendProfileFact(
+  ownerId: string,
+  input: { entryId: string; entryKind: "experience" | "project"; text: string },
+): Promise<{ factId: string; revisionId: string; previousRevisionId: string } | null> {
+  const snapshot = await getProfileSnapshot(ownerId);
+  const text = input.text.replace(/\s+/g, " ").trim().slice(0, 1000);
+  if (!snapshot.revisionId || !snapshot.confirmedAt || !text) return null;
+  const data = structuredClone(snapshot.data);
+  let factId: string;
+  if (input.entryKind === "experience") {
+    const entry = data.experience.find((item) => item.id === input.entryId && item.status === "confirmed");
+    if (!entry) return null;
+    factId = newId("ach");
+    entry.achievements.push({ id: factId, text, metrics: [] });
+  } else {
+    const project = data.projects.find((item) => item.id === input.entryId && item.status === "confirmed");
+    if (!project) return null;
+    factId = newId("out");
+    project.outcomes.push({ id: factId, text });
+  }
+  const saved = await saveProfileRevision(ownerId, data, { confirmed: true });
+  if (!saved.revisionId) return null;
+  return { factId, revisionId: saved.revisionId, previousRevisionId: snapshot.revisionId };
 }
 
 export async function getProfileRevision(

@@ -1,7 +1,7 @@
 import "server-only";
 import { resolveProviderSelection } from "@/features/ai-settings/service";
 import { confirmedFactsOnly } from "@/features/career-profile/schema";
-import { getProfileSnapshot } from "@/features/career-profile/service";
+import { appendProfileFact, getProfileSnapshot } from "@/features/career-profile/service";
 import { analyzeJobDescription, getJobDescription } from "@/features/job-analysis/service";
 import { appendRevision, createResume, type ResumeRevisionView } from "@/features/resume-history/service";
 import { AppError, NotFoundError } from "@/lib/errors";
@@ -13,15 +13,18 @@ import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
 import { DEFAULT_TEMPLATE_ID, isTemplateId } from "@/templates";
 import { pageFormatSchema, resumeContentSchema, type PageFormat, type ResumeContent } from "@/types/resume-content";
+import { planApplication, reconcilePlan, toBrief } from "./application-brief";
 import { buildBaselineContent, buildChangeReport, buildTailoredContent, preserveExperience } from "./build-content";
-import { matchEvidence } from "./evidence";
-import { applyDecisions, createProposals } from "./proposals";
+import { applyAnswer, applyDecisions, createProposals } from "./proposals";
 import {
+  applicationBriefSchema,
   changeReportSchema,
   evidenceMapSchema,
   proposalDecisionSchema,
   proposalSchema,
+  reviewAnswerSchema,
   tailoringAiOutputSchema,
+  type ApplicationBrief,
   type ChangeReport,
   type EvidenceMap,
   type GenerationMetadata,
@@ -54,6 +57,7 @@ export interface ReviewGenerateResult {
   proposals: Proposal[];
   changeReport: ChangeReport;
   evidence: EvidenceMap;
+  brief: ApplicationBrief;
 }
 
 const reviewStateSchema = z.object({
@@ -62,13 +66,15 @@ const reviewStateSchema = z.object({
   proposals: z.array(proposalSchema),
   changeReport: changeReportSchema,
   evidence: evidenceMapSchema,
+  /** Null for review sessions started before the application brief existed. */
+  brief: applicationBriefSchema.nullable().default(null),
   pageFormat: pageFormatSchema.default("A4"),
 });
 type ReviewState = z.infer<typeof reviewStateSchema>;
 
 function readReviewState(raw: unknown): ReviewState {
   const state = reviewStateSchema.parse(raw);
-  const experience = preserveExperience(state.baseline.experience, state.tailored.experience);
+  const experience = preserveExperience(state.baseline.experience, state.tailored.experience, state.tailored.featured);
   if (
     experience.length === state.tailored.experience.length &&
     experience.every((entry, index) => entry === state.tailored.experience[index])
@@ -86,6 +92,7 @@ function readReviewState(raw: unknown): ReviewState {
       evidence: state.evidence,
       rejected: state.changeReport.rejectedClaims,
       notes: state.changeReport.notes,
+      brief: state.brief,
     }),
   };
 }
@@ -134,7 +141,9 @@ export async function generateResume(
   const started = Date.now();
 
   try {
-    const evidence = matchEvidence(profile, analysis);
+    // Before drafting: screening criteria, evidence across the whole profile, the project to
+    // bring forward, the one question worth asking and what the posting asks applicants to do.
+    const initialPlan = planApplication({ profile, analysis, jobText: job.originalText });
     const aiResult = await runStructuredTask({
       task: "resume_tailoring",
       providerId: selection.providerId,
@@ -142,11 +151,27 @@ export async function generateResume(
       timeoutMs: selection.timeoutMs,
       schema: tailoringAiOutputSchema,
       system: RESUME_TAILORING_SYSTEM_PROMPT,
-      user: buildResumeTailoringUserPrompt({ profile, analysis, evidence, userInstructions: input.userInstructions }),
+      user: buildResumeTailoringUserPrompt({
+        profile,
+        analysis,
+        evidence: initialPlan.evidence,
+        plan: initialPlan,
+        userInstructions: input.userInstructions,
+      }),
       temperature: 0.2,
       maxOutputTokens: 12_000,
     });
-    const built = buildTailoredContent({ profile, analysis, evidence, aiOutput: aiResult.data });
+    const plan = reconcilePlan(initialPlan, aiResult.data.evidencePlan, profile, analysis);
+    const evidence = plan.evidence;
+    const brief = toBrief(plan);
+    const built = buildTailoredContent({
+      profile,
+      analysis,
+      evidence,
+      aiOutput: aiResult.data,
+      featured: plan.featured,
+      brief,
+    });
     if (built.validationStatus === "failed") {
       await finishRun(run.id, "failed", "Every generated claim failed factual validation.");
       throw new AppError(
@@ -210,6 +235,7 @@ export async function generateResume(
       proposals,
       changeReport: built.changeReport,
       evidence,
+      brief,
       pageFormat,
     };
     await prisma.generationRun.update({
@@ -224,7 +250,7 @@ export async function generateResume(
       durationMs: Date.now() - started,
       proposals: proposals.length,
     });
-    return { kind: "review", runId: run.id, proposals, changeReport: built.changeReport, evidence };
+    return { kind: "review", runId: run.id, proposals, changeReport: built.changeReport, evidence, brief };
   } catch (error) {
     if (!(error instanceof AppError && error.code === "validation_failed")) {
       const reason =
@@ -258,6 +284,8 @@ export interface ReviewRunView {
   proposals: Proposal[];
   changeReport: ChangeReport;
   evidence: EvidenceMap;
+  /** Null for review sessions started before the application brief existed. */
+  brief: ApplicationBrief | null;
   resultResumeId: string | null;
 }
 
@@ -281,15 +309,22 @@ export async function getReviewRun(ownerId: string, runId: string): Promise<Revi
     proposals: state.proposals,
     changeReport: state.changeReport,
     evidence: state.evidence,
+    brief: state.brief,
     resultResumeId: run.resultResumeId,
   };
 }
 
-/** FR-006 step 6: build the tailored resume from accepted proposals and save it as a new resume. */
+/**
+ * FR-006 step 6: build the tailored resume from accepted proposals and save it
+ * as a new resume. An answer to the brief's question is optional; when given
+ * it is added to the entry it is about in the owner's own words, and stored on
+ * the Master Career Profile only when the owner asks for that.
+ */
 export async function finalizeReview(
   ownerId: string,
   runId: string,
   decisionsInput: unknown,
+  answerInput?: unknown,
 ): Promise<{ resumeId: string; revision: ResumeRevisionView }> {
   const run = await prisma.generationRun.findFirst({
     where: { id: runId, ownerId },
@@ -300,7 +335,37 @@ export async function finalizeReview(
     throw new AppError("review_closed", "This review session has already been completed.");
   const state = readReviewState(run.proposal);
   const decisions: ProposalDecision[] = z.array(proposalDecisionSchema).parse(decisionsInput);
-  const content: ResumeContent = applyDecisions(state.baseline, state.tailored, state.proposals, decisions);
+  const answer = reviewAnswerSchema.parse(answerInput ?? {});
+  let content: ResumeContent = applyDecisions(state.baseline, state.tailored, state.proposals, decisions);
+  let careerProfileRevisionId = run.careerProfileRevisionId;
+  let brief = state.brief;
+  const answerNotes: string[] = [];
+  const question = state.brief?.question ?? null;
+  if (question && answer.text) {
+    let profileFactId: string | null = null;
+    if (answer.saveToProfile) {
+      const saved = await appendProfileFact(ownerId, {
+        entryId: question.entryId,
+        entryKind: question.entryKind,
+        text: answer.text,
+      });
+      if (saved) {
+        profileFactId = saved.factId;
+        // The new profile revision is the one this resume was generated from plus the answer.
+        if (saved.previousRevisionId === run.careerProfileRevisionId) careerProfileRevisionId = saved.revisionId;
+        answerNotes.push(`Your answer was also saved to your Master Career Profile under ${question.entryLabel}.`);
+      } else {
+        answerNotes.push(
+          "Your answer could not be saved to the Master Career Profile; it was added to this resume only.",
+        );
+      }
+    }
+    content = applyAnswer(content, question, answer.text, profileFactId);
+    answerNotes.unshift(
+      `Added your answer to "${question.text}" under ${question.entryLabel}, in your own words. It was not edited or validated by AI.`,
+    );
+    brief = state.brief ? { ...state.brief, question: null } : null;
+  }
   const accepted = state.proposals.filter((proposal) =>
     decisions.some((decision) => decision.proposalId === proposal.id && decision.decision === "accept"),
   ).length;
@@ -309,14 +374,26 @@ export async function finalizeReview(
     modelId: run.modelId,
     mode: "review",
     generationRunId: run.id,
-    careerProfileRevisionId: run.careerProfileRevisionId,
+    careerProfileRevisionId,
     jobDescriptionId: run.jobDescriptionId,
     userInstructions: run.userInstructions ?? "",
     generatedAt: new Date().toISOString(),
   };
+  const featuredShown = Boolean(content.featured);
   const changeReport: ChangeReport = {
     ...state.changeReport,
-    notes: [...state.changeReport.notes, `Review Mode: ${accepted} of ${state.proposals.length} proposals accepted.`],
+    notes: [
+      ...state.changeReport.notes,
+      `Review Mode: ${accepted} of ${state.proposals.length} proposals accepted.`,
+      ...answerNotes,
+    ],
+    // The brief describes the resume that was actually saved.
+    brief: brief
+      ? {
+          ...brief,
+          featured: brief.featured?.placement === "selected_project" && !featuredShown ? null : brief.featured,
+        }
+      : null,
   };
   const snapshot = await getProfileSnapshot(ownerId);
   const created = await createResume(ownerId, {
@@ -330,7 +407,7 @@ export async function finalizeReview(
       changeReport,
       generationMetadata: metadata,
       validationStatus: state.changeReport.rejectedClaims.length > 0 ? "passed_with_rejections" : "passed",
-      careerProfileRevisionId: run.careerProfileRevisionId,
+      careerProfileRevisionId,
     },
   });
   await prisma.generationRun.update({

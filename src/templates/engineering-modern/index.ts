@@ -5,6 +5,7 @@ import {
   dateRange,
   documentShell,
   esc,
+  featuredHeader,
   groupSkills,
   link,
   type ResumeTemplate,
@@ -44,6 +45,21 @@ function section(key: ResumeSectionKey, content: ResumeContent): string {
   switch (key) {
     case "summary":
       return `${title}<p class="summary">${esc(content.summary.text)}</p>`;
+    case "featured": {
+      const featured = content.featured;
+      if (!featured) return "";
+      const head = featuredHeader(featured);
+      return `${title}<div class="entry">
+  <div class="when">${head.dates}</div>
+  <div class="what">
+    <div class="title">${head.heading}</div>
+    ${head.sub ? `<div class="org">${head.sub}</div>` : ""}
+    ${featured.description ? `<div>${esc(featured.description)}</div>` : ""}
+    ${featured.bullets.length ? `<ul class="bullets">${featured.bullets.map((b) => `<li>${esc(b.text)}</li>`).join("")}</ul>` : ""}
+    ${featured.technologies.length ? `<div class="tech">${esc(featured.technologies.join(" · "))}</div>` : ""}
+  </div>
+</div>`;
+    }
     case "experience":
       return (
         title +

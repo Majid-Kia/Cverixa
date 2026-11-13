@@ -4,9 +4,9 @@ import { useActionState, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
 import { Alert, Badge, Card } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/fields";
+import { Checkbox, Textarea } from "@/components/ui/fields";
 import { finalizeReviewAction } from "@/features/resume-tailoring/actions";
-import type { Proposal, ProposalDecision } from "@/features/resume-tailoring/schema";
+import type { ClarifyingQuestion, Proposal, ProposalDecision } from "@/features/resume-tailoring/schema";
 import { initialActionState } from "@/lib/action-result";
 
 type Decision = "accept" | "reject" | "pending";
@@ -16,8 +16,21 @@ interface RowState {
   edited: string[];
 }
 
-export function ReviewPanel({ runId, proposals, closed }: { runId: string; proposals: Proposal[]; closed: boolean }) {
+export function ReviewPanel({
+  runId,
+  proposals,
+  question,
+  closed,
+}: {
+  runId: string;
+  proposals: Proposal[];
+  /** The one optional question about the selected project, if something material is missing. */
+  question: ClarifyingQuestion | null;
+  closed: boolean;
+}) {
   const [state, action] = useActionState(finalizeReviewAction, initialActionState);
+  const [answer, setAnswer] = useState("");
+  const [saveAnswer, setSaveAnswer] = useState(false);
   const [rows, setRows] = useState<Record<string, RowState>>(() =>
     Object.fromEntries(
       proposals.map((proposal) => [proposal.id, { decision: "pending" as Decision, edited: proposal.proposed }]),
@@ -46,21 +59,64 @@ export function ReviewPanel({ runId, proposals, closed }: { runId: string; propo
     }));
   const pending = proposals.filter((proposal) => rows[proposal.id]?.decision === "pending").length;
 
+  // Kept in state (not uncontrolled) so a failed submit does not clear what was typed.
+  const answerFields = (
+    <>
+      <input type="hidden" name="answer" value={answer} />
+      <input type="hidden" name="saveAnswer" value={saveAnswer && answer.trim() ? "1" : ""} />
+    </>
+  );
+  const questionCard =
+    question && !closed ? (
+      <Card className="border-blue-200">
+        <h3 className="font-semibold">One question that could strengthen this application</h3>
+        <p className="mt-2 text-sm">{question.text}</p>
+        <p className="text-muted mt-1 text-xs">
+          About {question.entryLabel}.{question.criterion ? ` The role asks for: ${question.criterion}.` : ""} Optional:
+          leave it empty to continue without answering.
+        </p>
+        <Textarea
+          aria-label="Your answer (optional)"
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder={question.hint || "Write it as you would on a resume."}
+          maxLength={1000}
+          className="mt-3 min-h-20"
+        />
+        <p className="text-muted mt-1 text-xs">
+          Your answer is added under that entry exactly as you write it. It is not reworded and nothing is inferred from
+          it.
+        </p>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={saveAnswer}
+            onChange={(event) => setSaveAnswer(event.target.checked)}
+            disabled={!answer.trim()}
+          />
+          Also save this answer to my Master Career Profile for future applications
+        </label>
+      </Card>
+    ) : null;
+
   if (proposals.length === 0) {
     return (
-      <Card>
-        <p className="text-muted text-sm">The AI proposed no changes to your profile content for this job.</p>
-        <form action={action} className="mt-4">
-          <input type="hidden" name="runId" value={runId} />
-          <input type="hidden" name="decisions" value="[]" />
-          {state.error ? (
-            <Alert tone="danger" className="mb-3">
-              {state.error}
-            </Alert>
-          ) : null}
-          <SubmitButton disabled={closed}>Create resume from original content</SubmitButton>
-        </form>
-      </Card>
+      <div className="space-y-4">
+        {questionCard}
+        <Card>
+          <p className="text-muted text-sm">The AI proposed no changes to your profile content for this job.</p>
+          <form action={action} className="mt-4">
+            <input type="hidden" name="runId" value={runId} />
+            <input type="hidden" name="decisions" value="[]" />
+            {answerFields}
+            {state.error ? (
+              <Alert tone="danger" className="mb-3">
+                {state.error}
+              </Alert>
+            ) : null}
+            <SubmitButton disabled={closed}>Create resume from original content</SubmitButton>
+          </form>
+        </Card>
+      </div>
     );
   }
 
@@ -68,6 +124,8 @@ export function ReviewPanel({ runId, proposals, closed }: { runId: string; propo
     <form action={action} className="space-y-4">
       <input type="hidden" name="runId" value={runId} />
       <input type="hidden" name="decisions" value={JSON.stringify(decisions)} />
+      {answerFields}
+      {questionCard}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" onClick={acceptAll} disabled={closed}>
           Accept all
@@ -95,7 +153,10 @@ export function ReviewPanel({ runId, proposals, closed }: { runId: string; propo
             }
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold">{proposal.label}</h3>
+              <div>
+                <h3 className="font-semibold">{proposal.label}</h3>
+                {proposal.note ? <p className="text-muted mt-1 text-xs">{proposal.note}</p> : null}
+              </div>
               <div className="flex items-center gap-2">
                 {row.decision === "accept" ? (
                   <Badge tone="success">Accepted</Badge>
@@ -136,7 +197,9 @@ export function ReviewPanel({ runId, proposals, closed }: { runId: string; propo
               <div>
                 <p className="text-muted mb-1 text-xs font-medium tracking-wide uppercase">Original</p>
                 {proposal.original.length === 0 ? (
-                  <p className="text-muted text-sm">(empty)</p>
+                  <p className="text-muted text-sm">
+                    {proposal.kind === "featured_project" ? "(not shown as its own entry)" : "(empty)"}
+                  </p>
                 ) : (
                   <ul className="list-disc space-y-1 pl-5 text-sm">
                     {proposal.original.map((line, index) => (
@@ -164,7 +227,9 @@ export function ReviewPanel({ runId, proposals, closed }: { runId: string; propo
                     className="min-h-32"
                   />
                 ) : row.edited.filter(Boolean).length === 0 ? (
-                  <p className="text-muted text-sm">(removed)</p>
+                  <p className="text-muted text-sm">
+                    {proposal.note ? "(no other bullets; the role stays listed)" : "(removed)"}
+                  </p>
                 ) : (
                   <ul className="list-disc space-y-1 pl-5 text-sm">
                     {row.edited.filter(Boolean).map((line, index) => (

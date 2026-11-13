@@ -39,6 +39,7 @@ export function ResumeEditor({ resumeId, revision, templates }: Props) {
   const [layout, setLayout] = useState<{ pageCount: number; warnings: string[] } | null>(null);
   const [layoutBusy, setLayoutBusy] = useState(false);
   const [state, action] = useActionState(saveRevisionAction, initialActionState);
+  const [checkedSaved, setCheckedSaved] = useState(false);
   const dirty =
     JSON.stringify(content) !== JSON.stringify(revision.content) ||
     templateId !== revision.templateId ||
@@ -67,23 +68,40 @@ export function ResumeEditor({ resumeId, revision, templates }: Props) {
     };
   }, [content, templateId, pageFormat, resumeId]);
 
-  const checkLayout = async () => {
-    setLayoutBusy(true);
+  const runPdfCheck = async (input: { content: ResumeContent; templateId: string; pageFormat: PageFormat }) => {
     try {
       const response = await fetch(`/api/resumes/${resumeId}/layout`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content, templateId, pageFormat }),
+        body: JSON.stringify(input),
       });
       const data = (await response.json()) as { pageCount?: number; warnings?: string[]; error?: string };
       if (data.pageCount !== undefined) setLayout({ pageCount: data.pageCount, warnings: data.warnings ?? [] });
-      else setLayout({ pageCount: 0, warnings: [data.error ?? "Layout check failed."] });
+      else setLayout({ pageCount: 0, warnings: [data.error ?? "PDF check failed."] });
     } catch {
-      setLayout({ pageCount: 0, warnings: ["Layout check failed."] });
+      setLayout({ pageCount: 0, warnings: ["PDF check failed."] });
     } finally {
       setLayoutBusy(false);
     }
   };
+  const checkLayout = () => {
+    setLayoutBusy(true);
+    void runPdfCheck({ content, templateId, pageFormat });
+  };
+
+  // Check the saved version's PDF once when it is opened, so a nearly empty last page, a repeated
+  // skill label or a headline mismatch is visible before the PDF is downloaded.
+  const savedRevision = useRef(revision);
+  useEffect(() => {
+    const saved = savedRevision.current;
+    const timer = setTimeout(() => {
+      void runPdfCheck({ content: saved.content, templateId: saved.templateId, pageFormat: saved.pageFormat }).then(
+        () => setCheckedSaved(true),
+      );
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per opened version (the editor is keyed by revision id)
+  }, []);
 
   const sectionOrder: ResumeSectionKey[] = [
     ...content.sectionOrder,
@@ -158,7 +176,7 @@ export function ResumeEditor({ resumeId, revision, templates }: Props) {
                 Save as new version
               </SubmitButton>
               <Button variant="secondary" onClick={checkLayout} disabled={layoutBusy}>
-                {layoutBusy ? "Checking pages..." : "Check pagination"}
+                {layoutBusy ? "Checking PDF..." : "Check pagination"}
               </Button>
               <Button
                 variant="ghost"
@@ -177,8 +195,14 @@ export function ResumeEditor({ resumeId, revision, templates }: Props) {
                 </span>
               ) : null}
             </div>
+            {layout && layout.pageCount > 0 && layout.warnings.length === 0 ? (
+              <p className="text-muted text-xs" data-testid="pdf-check-ok">
+                PDF check passed{checkedSaved && !dirty ? " for this version" : ""}: no nearly empty last page, repeated
+                skill labels or headline mismatch.
+              </p>
+            ) : null}
             {layout?.warnings.length ? (
-              <Alert tone="warning" title="Layout warnings">
+              <Alert tone="warning" title="PDF check">
                 <ul className="list-disc pl-5">
                   {layout.warnings.map((warning, index) => (
                     <li key={index}>{warning}</li>
@@ -262,6 +286,34 @@ export function ResumeEditor({ resumeId, revision, templates }: Props) {
             />
           </Field>
         </Card>
+
+        {content.featured ? (
+          <Card>
+            <h3 className="mb-2 font-semibold">Selected project</h3>
+            <p className="text-muted mb-2 text-xs">
+              Shown under the summary so it lands on page one. Taken from {content.featured.subtitle || "your profile"};
+              these bullets are not repeated elsewhere.
+            </p>
+            <Field label="Project title" htmlFor="ed-featured-title">
+              <Input
+                id="ed-featured-title"
+                value={content.featured.title}
+                onChange={(e) =>
+                  setContent({
+                    ...content,
+                    featured: content.featured && { ...content.featured, title: e.target.value },
+                  })
+                }
+              />
+            </Field>
+            <BulletList
+              bullets={content.featured.bullets}
+              onChange={(bullets) =>
+                setContent({ ...content, featured: content.featured && { ...content.featured, bullets } })
+              }
+            />
+          </Card>
+        ) : null}
 
         <Card>
           <h3 className="mb-2 font-semibold">Experience bullets</h3>

@@ -1,8 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getLatestRevision } from "@/features/resume-history/service";
-import { renderPdf } from "@/features/resume-rendering/pdf";
-import { renderResumeHtml } from "@/features/resume-rendering/render-html";
-import { validateResumePdf } from "@/features/resume-rendering/validate-pdf";
+import { exportResumePdf } from "@/features/resume-rendering/export-resume";
 import { NotFoundError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/security/session";
 import { isTemplateId } from "@/templates";
@@ -12,8 +10,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /**
- * Pagination check for the editor: renders the current (unsaved) content with
- * Chromium and returns the page count and layout warnings without saving.
+ * PDF check for the editor: renders the current (unsaved) content with
+ * Chromium and returns the page count, layout warnings and the export quality
+ * checks (nearly empty last page, repeated skill labels, headline
+ * consistency, selected project on page one) without saving.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -26,13 +26,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const templateId =
       typeof body.templateId === "string" && isTemplateId(body.templateId) ? body.templateId : "classic-clear";
     const pageFormat = pageFormatSchema.catch("A4").parse(body.pageFormat);
-    const html = renderResumeHtml(content, { templateId, pageFormat });
-    const rendered = await renderPdf(html, pageFormat);
-    const validation = await validateResumePdf(rendered.pdf, { mustContain: [content.personal.fullName] });
+    const result = await exportResumePdf(content, { templateId, pageFormat });
     return NextResponse.json({
-      pageCount: validation.pageCount,
-      warnings: [...rendered.layoutWarnings.map((w) => w.message), ...validation.problems],
-      durationMs: rendered.durationMs,
+      pageCount: result.pageCount,
+      warnings: [
+        ...result.layoutWarnings.map((warning) => warning.message),
+        ...result.validation.problems,
+        ...result.qualityWarnings.map((warning) => warning.message),
+      ],
+      durationMs: result.durationMs,
     });
   } catch (error) {
     if (error instanceof NotFoundError) return NextResponse.json({ error: "Not found" }, { status: 404 });

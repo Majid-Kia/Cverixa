@@ -6,6 +6,7 @@ import { listResumes } from "@/features/resume-history/service";
 import { formatDateTime, truncate } from "@/lib/utils";
 import { requireUser } from "@/server/security/session";
 import { getTemplate } from "@/templates";
+import { ApplicationStatusSelect } from "./application-status-select";
 
 export const metadata: Metadata = { title: "Resume History" };
 export const dynamic = "force-dynamic";
@@ -52,7 +53,12 @@ export default async function ResumesPage() {
                     {resume.latestProvider ? ` · ${resume.latestProvider}/${resume.latestModel}` : ""}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <ApplicationStatusSelect
+                    resumeId={resume.id}
+                    resumeTitle={resume.title}
+                    initialStatus={resume.applicationStatus}
+                  />
                   <StatusBadge status={resume.latestValidationStatus} />
                   <a
                     href={`/api/resumes/${resume.id}/pdf`}
