@@ -56,3 +56,11 @@ export function createOwner(url: string, email: string, password: string) {
     stdio: "pipe",
   });
 }
+
+/** Store the synthetic candidate profile (tests/fixtures/application-cases.ts) as the owner's confirmed profile. */
+export function seedCandidateProfile(url: string, email: string) {
+  execSync("pnpm exec tsx tests/e2e/seed-candidate-profile.ts", {
+    env: { ...process.env, DATABASE_URL: url, OWNER_EMAIL: email },
+    stdio: "pipe",
+  });
+}

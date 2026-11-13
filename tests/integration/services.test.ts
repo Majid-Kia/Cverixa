@@ -232,3 +232,111 @@ describe("generation, review and history (FR-004, FR-005, FR-006, FR-010)", () =
     expect((await s.history.listResumes(other.id)).length).toBe(0);
   });
 });
+
+describe("application brief, selected project and question (Review Mode)", () => {
+  const PORTAL = "Built the fraud-detection portal that analysts use";
+
+  async function review(posting: { company: string; title: string; text: string }) {
+    const job = await s.jobs.createJobDescription(ownerId, {
+      originalText: posting.text,
+      title: posting.title,
+      company: posting.company,
+      location: "",
+      sourceUrl: "",
+      notes: "",
+    });
+    const result = await s.tailoring.generateResume(ownerId, { jobDescriptionId: job.id, mode: "review" });
+    if (result.kind !== "review") throw new Error("expected a review run");
+    return { job, result, run: await s.tailoring.getReviewRun(ownerId, result.runId) };
+  }
+
+  it("stores the brief with the review run for each reviewed application", async () => {
+    const { PARTLY, POLARSTEPS, SEAMFLOW, candidateProfile } = await import("../fixtures/application-cases");
+    await s.profile.saveProfileRevision(ownerId, candidateProfile(), { confirmed: true });
+
+    const partly = await review(PARTLY);
+    expect(partly.run.brief?.featured).toEqual(
+      expect.objectContaining({ title: "Fraud-detection portal", placement: "selected_project" }),
+    );
+    expect(partly.run.brief?.question?.signal).toBe("customer_contact");
+    expect(partly.run.brief?.eligibility.status).toBe("unknown");
+    expect(partly.run.proposals.map((proposal) => proposal.kind)).toContain("featured_project");
+
+    const polarsteps = await review(POLARSTEPS);
+    expect(polarsteps.run.brief?.featured?.title).toBe("Tour-booking system");
+    expect(polarsteps.run.brief?.question).toBeNull();
+    // Proceeding without any answer is always possible.
+    const plain = await s.tailoring.finalizeReview(
+      ownerId,
+      polarsteps.result.runId,
+      polarsteps.run.proposals.map((proposal) => ({ proposalId: proposal.id, decision: "accept" })),
+    );
+    expect(plain.revision.content.featured?.subtitle).toBe("Frontend Developer, Zoomit");
+    expect(plain.revision.changeReport?.brief?.featured?.title).toBe("Tour-booking system");
+
+    const seamflow = await review(SEAMFLOW);
+    expect(seamflow.run.brief?.applicationRequirements.map((item) => item.kind)).toEqual(["project_note"]);
+    expect(seamflow.run.brief?.question?.text).toMatch(/design decisions in the fraud-detection portal/);
+  });
+
+  it("finalises without an answer and leaves the profile untouched", async () => {
+    const { PARTLY } = await import("../fixtures/application-cases");
+    const before = await s.profile.getProfileSnapshot(ownerId);
+    const { result, run } = await review(PARTLY);
+    const finalized = await s.tailoring.finalizeReview(
+      ownerId,
+      result.runId,
+      run.proposals.map((proposal) => ({ proposalId: proposal.id, decision: "accept" })),
+      { text: "", saveToProfile: true },
+    );
+    const texts = [
+      ...(finalized.revision.content.featured?.bullets ?? []),
+      ...finalized.revision.content.experience.flatMap((entry) => entry.bullets),
+    ].map((bullet) => bullet.text);
+    expect(texts.filter((text) => text.startsWith(PORTAL))).toHaveLength(1);
+    expect(finalized.revision.changeReport?.brief?.question?.signal).toBe("customer_contact");
+    expect((await s.profile.getProfileSnapshot(ownerId)).revisionId).toBe(before.revisionId);
+  });
+
+  it("adds an answer to the project in the owner's words and saves it to the profile only on request", async () => {
+    const { PARTLY } = await import("../fixtures/application-cases");
+    const answer = "Sat with two fraud analysts every week during rollout and reordered the queue after watching them.";
+    const before = await s.profile.getProfileSnapshot(ownerId);
+
+    const first = await review(PARTLY);
+    const resumeOnly = await s.tailoring.finalizeReview(
+      ownerId,
+      first.result.runId,
+      first.run.proposals.map((proposal) => ({ proposalId: proposal.id, decision: "accept" })),
+      { text: answer, saveToProfile: false },
+    );
+    expect(resumeOnly.revision.content.featured?.bullets.at(-1)).toEqual(
+      expect.objectContaining({ text: answer, kind: "user_provided", sourceIds: [] }),
+    );
+    expect(resumeOnly.revision.changeReport?.brief?.question).toBeNull();
+    expect(resumeOnly.revision.changeReport?.notes.some((note) => /in your own words/.test(note))).toBe(true);
+    expect((await s.profile.getProfileSnapshot(ownerId)).revisionId).toBe(before.revisionId);
+
+    const second = await review(PARTLY);
+    const saved = await s.tailoring.finalizeReview(
+      ownerId,
+      second.result.runId,
+      second.run.proposals.map((proposal) => ({ proposalId: proposal.id, decision: "accept" })),
+      { text: answer, saveToProfile: true },
+    );
+    const after = await s.profile.getProfileSnapshot(ownerId);
+    expect(after.version).toBe(before.version + 1);
+    expect(after.confirmedAt).not.toBeNull();
+    const ledgerline = after.data.experience.find((entry) => entry.id === "exp_ledgerline")!;
+    expect(ledgerline.achievements.at(-1)?.text).toBe(answer);
+    expect(saved.revision.content.featured?.bullets.at(-1)?.sourceIds).toEqual([ledgerline.achievements.at(-1)!.id]);
+    expect(saved.revision.careerProfileRevisionId).toBe(after.revisionId);
+
+    // With the statement confirmed, the gap closes and the question is no longer about customer contact.
+    const third = await review(PARTLY);
+    const customers = third.run.brief?.criteria.find((item) => /directly with customers/.test(item.description));
+    expect(customers?.missingSignals).not.toContain("customer_contact");
+    expect(customers?.evidence.some((ref) => ref.source.startsWith("Frontend Engineer at Ledgerline"))).toBe(true);
+    expect(third.run.brief?.question?.signal).not.toBe("customer_contact");
+  });
+});

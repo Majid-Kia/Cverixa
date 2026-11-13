@@ -44,10 +44,19 @@ The editor (`src/features/resume-rendering/resume-editor.tsx`) posts the current
 - `/BaseFont` entries reference only Inter subsets (fails if Inter is missing or another font leaked in);
 - optional page-count bounds.
 
+`exportResumePdf` then runs `checkExportQuality` (`content-checks.ts`) on the text of each rendered page and returns `qualityWarnings`:
+
+- `trailing_page`: the last page holds only a few lines (typically the tail of Skills or Languages);
+- `duplicate_skill_label`: a skill listed twice, or an additional section whose heading repeats a built-in one;
+- `headline_mismatch`: a years-of-experience claim the listed roles do not bear out (for example "1+ years" above eleven years of roles), a figure that disagrees with the summary, a junior headline above a senior title, or a technology named only in the headline;
+- `featured_not_on_first_page`: the selected project did not land on page one.
+
+Warnings never block a download. They are returned by `/api/resumes/[id]/layout`, shown in the editor (which checks the saved version once when it is opened), logged on export and counted in the `x-resume-warnings` response header.
+
 `renderPdf` additionally reports `horizontal_overflow` (document wider than the page) and `empty_document` warnings measured inside Chromium.
 
 ## Tests
 
-`tests/pdf/render.test.ts` renders every template against short, minimal and long fixtures in A4 and Letter and asserts: no validation problems, Inter embedded, no overflow warnings, page counts within bounds, deterministic text/font results for identical input, and that long URLs/company names do not overflow. Rendered PDFs are written to `tests/pdf/output` (ignored by git, uploaded as CI artifacts) for manual inspection.
+`tests/pdf/render.test.ts` renders every template against short, minimal and long fixtures in A4 and Letter and asserts: no validation problems, Inter embedded, no overflow warnings, page counts within bounds, deterministic text/font results for identical input, and that long URLs/company names do not overflow. It also renders three reviewed applications (`tests/fixtures/application-cases.ts`) and asserts on the PDF that the selected project is on page one, appears once and keeps its source role, and that the trailing-page, duplicate-label and headline checks fire. Rendered PDFs are written to `tests/pdf/output` (ignored by git, uploaded as CI artifacts) for manual inspection.
 
 Pixel-level visual regression is not implemented yet; see README "Known limitations".

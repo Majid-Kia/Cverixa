@@ -66,7 +66,9 @@ describe("career profile schema", () => {
 describe("resume content schema", () => {
   it("applies defaults and hides empty sections", () => {
     const content = resumeContentSchema.parse({ personal: { fullName: "A" }, summary: { text: "" } });
-    expect(content.sectionOrder.length).toBe(8);
+    expect(content.sectionOrder.length).toBe(9);
+    expect(content.featured).toBeNull();
+    expect(sectionHasContent(content, "featured")).toBe(false);
     expect(sectionHasContent(content, "summary")).toBe(false);
     expect(visibleSections(content)).toEqual([]);
   });

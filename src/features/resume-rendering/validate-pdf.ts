@@ -4,6 +4,8 @@ export interface PdfValidationResult {
   ok: boolean;
   pageCount: number;
   textLength: number;
+  /** Extracted text of each page, in order (used by the export quality checks). */
+  pages: string[];
   interEmbedded: boolean;
   /** Names of fonts referenced by the PDF (from font dictionaries). */
   fontNames: string[];
@@ -21,8 +23,9 @@ export async function validateResumePdf(
   const problems: string[] = [];
   const document = await getDocumentProxy(new Uint8Array(pdfBytes));
   const pageCount = document.numPages;
-  const { text } = await extractText(document, { mergePages: true });
-  const normalized = text.replace(/\s+/g, " ").trim();
+  const { text } = await extractText(document, { mergePages: false });
+  const pages = Array.isArray(text) ? text : [text];
+  const normalized = pages.join(" ").replace(/\s+/g, " ").trim();
 
   if (normalized.length === 0) problems.push("No extractable text found in the PDF.");
   for (const expected of expectations.mustContain) {
@@ -41,7 +44,15 @@ export async function validateResumePdf(
   const nonInter = fontNames.filter((name) => !/inter/i.test(name));
   if (nonInter.length > 0) problems.push(`Unexpected fonts referenced: ${nonInter.join(", ")}.`);
 
-  return { ok: problems.length === 0, pageCount, textLength: normalized.length, interEmbedded, fontNames, problems };
+  return {
+    ok: problems.length === 0,
+    pageCount,
+    textLength: normalized.length,
+    pages,
+    interEmbedded,
+    fontNames,
+    problems,
+  };
 }
 
 /** Collect /BaseFont names from the raw PDF bytes (works for uncompressed font dictionaries, which Chromium emits). */

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Alert, Badge, Card, CardTitle, PageHeader } from "@/components/ui/card";
+import { ApplicationChecklistCard, ScreeningCriteriaCard } from "@/features/resume-tailoring/application-brief-cards";
 import { getReviewRun } from "@/features/resume-tailoring/service";
 import { NotFoundError } from "@/lib/errors";
 import { requireUser } from "@/server/security/session";
@@ -20,7 +21,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ runId: 
     if (error instanceof NotFoundError) notFound();
     throw error;
   }
-  const missing = run.evidence.matches.filter((match) => match.status !== "supported");
+  const brief = run.brief;
+  const screened = new Set(brief?.criteria.map((criterion) => criterion.requirementId) ?? []);
+  // Requirements outside the screening criteria that still lack full evidence.
+  const missing = run.evidence.matches.filter(
+    (match) => match.status !== "supported" && !screened.has(match.requirementId),
+  );
 
   return (
     <>
@@ -53,13 +59,40 @@ export default async function ReviewPage({ params }: { params: Promise<{ runId: 
           </ul>
         </Alert>
       ) : null}
-      <div className="grid gap-4 lg:grid-cols-[3fr_1fr]">
-        <ReviewPanel runId={run.runId} proposals={run.proposals} closed={run.status !== "awaiting_review"} />
+      {brief && brief.headlineIssues.length > 0 ? (
+        <Alert tone="warning" title="Headline does not match the profile" className="mb-4">
+          <ul className="list-disc pl-5">
+            {brief.headlineIssues.map((issue, index) => (
+              <li key={index}>{issue}</li>
+            ))}
+          </ul>
+          <p className="mt-1">
+            The headline is copied from your{" "}
+            <Link href="/profile" className="font-medium underline">
+              Master Career Profile
+            </Link>
+            ; correct it there or in the resume editor.
+          </p>
+        </Alert>
+      ) : null}
+      <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+        <ReviewPanel
+          runId={run.runId}
+          proposals={run.proposals}
+          question={brief?.question ?? null}
+          closed={run.status !== "awaiting_review"}
+        />
         <div className="space-y-4">
+          {brief ? <ScreeningCriteriaCard brief={brief} /> : null}
+          {brief ? <ApplicationChecklistCard brief={brief} /> : null}
           <Card>
-            <CardTitle>Missing requirements</CardTitle>
+            <CardTitle>{brief ? "Other requirements without full evidence" : "Missing requirements"}</CardTitle>
             {missing.length === 0 ? (
-              <p className="text-muted text-sm">All extracted requirements are supported by confirmed evidence.</p>
+              <p className="text-muted text-sm">
+                {brief
+                  ? "Every other extracted requirement is supported by confirmed evidence."
+                  : "All extracted requirements are supported by confirmed evidence."}
+              </p>
             ) : (
               <ul className="space-y-2 text-sm">
                 {missing.map((match) => (

@@ -3,6 +3,7 @@ import { containsTerm, normalizeTerm, TECH_KEYWORDS } from "@/features/job-analy
 import type { JobAnalysis } from "@/features/job-analysis/schema";
 import type { ResumeBullet, ResumeContent } from "@/types/resume-content";
 import type { RejectedClaim, ValidationStatus } from "./schema";
+import { unsupportedSignalClaim } from "./signals";
 
 export interface SourceFact {
   id: string;
@@ -143,7 +144,8 @@ export function checkTextAgainstSources(
     if (allowedTechnology.some((allowed) => containsTerm(allowed, term) || containsTerm(term, allowed))) continue;
     return `"${term}" is not supported by the cited evidence or confirmed skills.`;
   }
-  return null;
+  // Customer contact, usage tracking, design ownership and AI work must be stated by the source.
+  return unsupportedSignalClaim(text, sourceText);
 }
 
 function allowedTechnologyTerms(parentId: string | null, index: SourceIndex): string[] {
