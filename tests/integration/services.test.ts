@@ -395,3 +395,39 @@ describe("manual application tracking", () => {
     expect((await s.history.getResume(ownerId, first.id)).applicationStatus).toBe(saved);
   });
 });
+
+describe("job analysis with over-long model output", () => {
+  it("saves the analysis when the model returns a seniority longer than the stored limit (regression)", async () => {
+    const { getProvider } = await import("@/server/ai/registry");
+    const { jobAnalysisAiOutputSchema } = await import("@/features/job-analysis/schema");
+    const seniority =
+      "Senior level: the posting asks for at least five years of professional frontend experience, the ability to lead projects independently and to mentor others";
+    using generateStructured = vi.spyOn(getProvider("mock"), "generateStructured").mockResolvedValueOnce({
+      data: jobAnalysisAiOutputSchema.parse({
+        jobTitle: "Senior Frontend Engineer",
+        seniority,
+        summary: "React role.",
+        requirements: [{ category: "technical_skill", description: "React", relatedSkills: ["React"] }],
+      }),
+      modelId: "mock-deterministic-v1",
+      durationMs: 1,
+    } as never);
+    const job = await s.jobs.createJobDescription(ownerId, {
+      originalText: JOB_TEXT,
+      title: "",
+      company: "Initech",
+      location: "",
+      sourceUrl: "",
+      notes: "",
+    });
+    const analysed = await s.jobs.analyzeJobDescription(ownerId, job.id);
+    expect(generateStructured).toHaveBeenCalledTimes(1);
+    expect(analysed.analyzedAt).not.toBeNull();
+    expect(analysed.analysis?.seniority.length).toBeLessThanOrEqual(100);
+    expect(seniority.startsWith(analysed.analysis!.seniority)).toBe(true);
+    expect(analysed.analysis?.requirements).toHaveLength(1);
+    // The stored analysis reads back, so generating from this job works.
+    expect((await s.jobs.getJobDescription(ownerId, job.id)).analysis?.jobTitle).toBe("Senior Frontend Engineer");
+    await s.jobs.deleteJobDescription(ownerId, job.id);
+  });
+});

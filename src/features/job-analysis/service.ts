@@ -1,13 +1,12 @@
 import "server-only";
 import { resolveProviderSelection } from "@/features/ai-settings/service";
-import { newId } from "@/lib/ids";
-import { NotFoundError } from "@/lib/errors";
+import { AppError, NotFoundError } from "@/lib/errors";
 import { buildJobAnalysisUserPrompt, JOB_ANALYSIS_SYSTEM_PROMPT } from "@/server/ai/prompts/job-analysis";
 import { runStructuredTask } from "@/server/ai/run-task";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
-import { isVerbatim } from "./application-context";
+import { toJobAnalysis } from "./normalize";
 import {
   jobAnalysisAiOutputSchema,
   jobAnalysisSchema,
@@ -146,40 +145,14 @@ export async function analyzeJobDescription(
     temperature: 0,
     maxOutputTokens: 8_000,
   });
-  const analysis = jobAnalysisSchema.parse({
-    jobTitle: result.data.jobTitle || job.title,
-    seniority: result.data.seniority,
-    summary: result.data.summary,
-    requirements: result.data.requirements.map((requirement) => ({
-      ...requirement,
-      id: newId("req"),
-      description: requirement.description.slice(0, 500),
-      supportingText: requirement.supportingText.slice(0, 1000),
-      relatedSkills: requirement.relatedSkills
-        .map((skill) => skill.trim())
-        .filter(Boolean)
-        .slice(0, 20),
-    })),
-    // Keep only items the posting states word for word; ids are assigned here.
-    applicationRequirements: result.data.applicationRequirements
-      .filter((item) => isVerbatim(job.originalText, item.supportingText))
-      .slice(0, 10)
-      .map((item) => ({
-        ...item,
-        id: newId("apply"),
-        description: item.description.slice(0, 500),
-        supportingText: item.supportingText.slice(0, 1000),
-      })),
-    logistics: result.data.logistics
-      .filter((item) => isVerbatim(job.originalText, item.supportingText))
-      .slice(0, 10)
-      .map((item) => ({
-        ...item,
-        id: newId("logistics"),
-        description: item.description.slice(0, 500),
-        supportingText: item.supportingText.slice(0, 1000),
-      })),
-  });
+  // Model output is cut to the stored limits here; an over-long field never fails the analysis.
+  const analysis = toJobAnalysis(result.data, job);
+  if (!analysis) {
+    throw new AppError(
+      "analysis_invalid",
+      "The AI returned a job analysis that could not be used. The job description was saved; run the analysis again.",
+    );
+  }
   const row = await prisma.jobDescription.update({
     where: { id },
     data: {
