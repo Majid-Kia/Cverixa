@@ -35,8 +35,9 @@ const CSS = `
   ul.bullets { padding-left: 12pt; margin-top: 2pt; }
   ul.bullets li { margin: 1.5pt 0; }
   .tech { font-size: 9.5pt; color: #444; margin-top: 2pt; }
-  .skills-row { display: flex; gap: 6pt; margin: 2pt 0; }
-  .skills-row .cat { font-weight: 600; min-width: 90pt; }
+  .skills { display: grid; grid-template-columns: minmax(90pt, max-content) 1fr; gap: 4pt 6pt; margin: 2pt 0; }
+  .skills-row { display: contents; }
+  .skills-row .cat { font-weight: 600; white-space: nowrap; }
   .summary { margin: 0; }
   .inline-list { margin: 0; }
 `;
@@ -73,15 +74,14 @@ function renderSection(key: ResumeSectionKey, content: ResumeContent): string {
           .join("")
       );
     case "skills":
-      return (
-        title +
-        groupSkills(content)
-          .map(
-            (group) =>
-              `<div class="skills-row"><span class="cat">${esc(group.category)}</span><span>${esc(group.skills.join(", "))}</span></div>`,
-          )
-          .join("")
-      );
+      // One grid for all rows: the title column is as wide as the longest title, so no title wraps
+      // and the skill lists stay aligned.
+      return `${title}<div class="skills">${groupSkills(content)
+        .map(
+          (group) =>
+            `<div class="skills-row"><span class="cat">${esc(group.category)}</span><span>${esc(group.skills.join(", "))}</span></div>`,
+        )
+        .join("")}</div>`;
     case "projects":
       return (
         title +

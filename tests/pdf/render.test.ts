@@ -1,10 +1,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { chromium } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
 import { confirmedFactsOnly } from "@/features/career-profile/schema";
 import { buildBaselineContent } from "@/features/resume-tailoring/build-content";
 import { exportResumePdf } from "@/features/resume-rendering/export-resume";
 import { closeBrowser } from "@/features/resume-rendering/pdf";
+import { renderResumeHtml } from "@/features/resume-rendering/render-html";
 import { TEMPLATES } from "@/templates";
 import type { PageFormat } from "@/types/resume-content";
 import { PARTLY, POLARSTEPS, SEAMFLOW, candidateProfile } from "../fixtures/application-cases";
@@ -201,4 +203,71 @@ describe("exported PDF for the reviewed applications", () => {
     });
     expect(corrected.qualityWarnings.filter((warning) => warning.code !== "trailing_page")).toEqual([]);
   });
+});
+
+/** Skill category titles ("Programming Languages") must stay on one line in every template. */
+describe("skill category titles", () => {
+  const CATEGORIES = [
+    [
+      "Programming Languages",
+      [
+        "JavaScript",
+        "TypeScript",
+        "Python",
+        "Go",
+        "Kotlin",
+        "Swift",
+        "Rust",
+        "SQL",
+        "Bash",
+        "PHP",
+        "Ruby",
+        "Elixir",
+        "Dart",
+        "Scala",
+        "Objective-C",
+        "Haskell",
+      ],
+    ],
+    ["Frameworks and Libraries", ["React", "Next.js", "Vue", "Svelte", "Express", "NestJS", "Tailwind CSS", "Redux"]],
+    ["Testing and Quality Tools", ["Playwright", "Jest", "Vitest", "Cypress", "ESLint", "Storybook", "Lighthouse"]],
+    ["Cloud", ["AWS", "Docker"]],
+  ] as const;
+
+  for (const template of TEMPLATES) {
+    it(`${template.id} keeps each title on a single line and the skills beside it`, async () => {
+      const content = buildBaselineContent(confirmedFactsOnly(sampleProfile()));
+      content.skills = CATEGORIES.flatMap(([category, names]) =>
+        names.map((name) => ({ id: `${category}-${name}`, name, category })),
+      );
+      const html = renderResumeHtml(content, { templateId: template.id, pageFormat: "A4" });
+      const browser = await chromium.launch({ headless: true });
+      try {
+        // A4 text width at 96 dpi once the template's side margins are taken off.
+        const page = await browser.newPage({ viewport: { width: 650, height: 900 } });
+        await page.setContent(html, { waitUntil: "load" });
+        await page.evaluate(() => document.fonts.ready);
+        const titles = await page.evaluate(() =>
+          [...document.querySelectorAll(".skills-row .cat, .skills .cat, .skills strong")].map((element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const tops = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+            return {
+              text: element.textContent ?? "",
+              lines: tops.size,
+              overflow: document.documentElement.scrollWidth,
+            };
+          }),
+        );
+        expect(titles.map((title) => title.text.replace(/:$/, ""))).toEqual(CATEGORIES.map(([category]) => category));
+        expect(titles.map((title) => title.lines)).toEqual([1, 1, 1, 1]);
+        expect(Math.max(...titles.map((title) => title.overflow))).toBeLessThanOrEqual(651);
+      } finally {
+        await browser.close();
+      }
+      const result = await exportResumePdf(content, { templateId: template.id, pageFormat: "A4" });
+      expect(result.layoutWarnings).toEqual([]);
+      expect(result.validation.problems).toEqual([]);
+    });
+  }
 });

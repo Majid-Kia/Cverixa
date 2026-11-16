@@ -34,8 +34,8 @@ const CSS = `
   ul.bullets { padding-left: 11pt; margin-top: 2pt; }
   ul.bullets li { margin: 1.5pt 0; }
   .tech { font-size: 9.5pt; color: #4b5563; margin-top: 2pt; }
-  .skills { display: grid; grid-template-columns: 78pt 1fr; gap: 3pt 8pt; }
-  .skills .cat { font-weight: 600; color: #111827; font-size: 10pt; }
+  .skills { display: grid; grid-template-columns: minmax(78pt, max-content) 1fr; gap: 3pt 8pt; }
+  .skills .cat { font-weight: 600; color: #111827; font-size: 10pt; white-space: nowrap; }
   .summary { margin: 0; }
   .plain { margin: 0; }
 `;

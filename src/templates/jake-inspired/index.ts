@@ -35,7 +35,7 @@ const CSS = `
   ul.bullets li { margin: 0.5pt 0; }
   .tech { font-size: 9.5pt; color: #333; }
   .skills p { margin: 1pt 0; }
-  .skills strong { font-weight: 600; }
+  .skills strong { font-weight: 600; white-space: nowrap; }
   .summary { margin: 0; }
 `;
 
