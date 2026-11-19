@@ -20,7 +20,11 @@ export const resumeBulletSchema = z.object({
   /** Ids of confirmed profile statements/achievements this bullet is derived from. */
   sourceIds: z.array(z.string()).default([]),
   /** How the bullet relates to its sources. */
-  kind: z.enum(["original", "reworded", "composed", "user_provided"]).default("original"),
+  /**
+   * `supplied`: written to cover a job requirement the profile has no evidence
+   * for, at the owner's request. It cites no source and is not validated.
+   */
+  kind: z.enum(["original", "reworded", "composed", "user_provided", "supplied"]).default("original"),
 });
 export type ResumeBullet = z.infer<typeof resumeBulletSchema>;
 
@@ -53,6 +57,8 @@ export const resumeSkillSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().max(100),
   category: z.string().trim().max(100).default("General"),
+  /** True for a skill added to cover a job requirement that is not in the confirmed profile. */
+  supplied: z.boolean().optional(),
 });
 export type ResumeSkill = z.infer<typeof resumeSkillSchema>;
 

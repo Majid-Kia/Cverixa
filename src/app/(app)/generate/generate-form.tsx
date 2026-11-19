@@ -159,10 +159,24 @@ export function GenerateForm(props: Props) {
         ) : null}
       </div>
 
+      <label className="border-border flex cursor-pointer gap-3 rounded-md border p-3">
+        <input type="checkbox" name="fillGaps" defaultChecked className="mt-1" />
+        <span>
+          <span className="block text-sm font-medium">Cover missing requirements</span>
+          <span className="text-muted block text-sm">
+            When the job asks for a skill or experience that is not in your profile, add it: missing skills go into
+            Skills, and a bullet is added to a role or swapped for one that does not matter for this job. This also
+            covers requirements your profile supports only in part. Additions are not checked against your profile and
+            are marked so you can review them. Degrees, certifications and work eligibility are never written for you;
+            they are listed so you can add the ones you hold. Untick to use only what your profile contains.
+          </span>
+        </span>
+      </label>
+
       <Field
         label="Optional instructions"
         htmlFor="userInstructions"
-        hint="For example: emphasise leadership, keep to one page where possible. Instructions cannot add unverified facts."
+        hint="For example: emphasise leadership, keep to one page where possible. Instructions do not add facts; use the option above for that."
       >
         <Textarea id="userInstructions" name="userInstructions" className="min-h-20" maxLength={2000} />
       </Field>

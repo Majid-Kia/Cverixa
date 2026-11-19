@@ -1,7 +1,7 @@
 import { newId } from "@/lib/ids";
 import { SECTION_LABELS, type ResumeBullet, type ResumeContent } from "@/types/resume-content";
 import { normalizeSectionOrder } from "./build-content";
-import type { ClarifyingQuestion, Proposal, ProposalDecision } from "./schema";
+import type { ClarifyingQuestion, Proposal, ProposalDecision, SuppliedContent } from "./schema";
 
 export const FEATURED_PROPOSAL_ID = "featured";
 
@@ -9,7 +9,11 @@ export const FEATURED_PROPOSAL_ID = "featured";
  * Review Mode (FR-006): derive individual proposals by diffing the tailored
  * content against the baseline (unchanged profile content).
  */
-export function createProposals(baseline: ResumeContent, tailored: ResumeContent): Proposal[] {
+export function createProposals(
+  baseline: ResumeContent,
+  tailored: ResumeContent,
+  supplied: SuppliedContent | null = null,
+): Proposal[] {
   const proposals: Proposal[] = [];
 
   if (baseline.summary.text.trim() !== tailored.summary.text.trim()) {
@@ -104,7 +108,81 @@ export function createProposals(baseline: ResumeContent, tailored: ResumeContent
     });
   }
 
+  proposals.push(...suppliedProposals(supplied));
   return proposals;
+}
+
+export const SUPPLIED_SKILLS_PROPOSAL_ID = "supplied:skills";
+
+/**
+ * Additions that cover requirements the profile has no evidence for. Each is
+ * its own proposal so the owner decides on them one by one.
+ */
+function suppliedProposals(supplied: SuppliedContent | null): Proposal[] {
+  if (!supplied) return [];
+  const proposals: Proposal[] = [];
+  if (supplied.skills.length > 0) {
+    proposals.push({
+      id: SUPPLIED_SKILLS_PROPOSAL_ID,
+      kind: "supplied_skills",
+      label: "Skills added to cover the job",
+      original: [],
+      proposed: supplied.skills.map((skill) => skill.name),
+      proposedSourceIds: [],
+      note: "Not in your profile. The job asks for these and nothing in your confirmed data shows them. Accept only the ones you have; use Edit to remove any (one skill per line).",
+    });
+  }
+  for (const bullet of supplied.bullets) {
+    const requirement = bullet.requirement.length > 80 ? `${bullet.requirement.slice(0, 79)}...` : bullet.requirement;
+    proposals.push({
+      id: `supplied:${bullet.id}`,
+      kind: "supplied_bullet",
+      entryId: bullet.entryId,
+      label: `Added to cover: ${requirement}`,
+      original: bullet.replacedText ? [bullet.replacedText] : [],
+      proposed: [bullet.text],
+      proposedSourceIds: [[]],
+      note: `Not from your profile. Placed under ${bullet.entryLabel}${
+        bullet.replacedText ? ", in place of a bullet that does not relate to this job" : ""
+      }. Accept it only if it is true for you; use Edit to put it in your own words.`,
+    });
+  }
+  return proposals;
+}
+
+/** The supplied additions the owner accepted in Review Mode, with their edits. */
+export function acceptedSupplied(
+  supplied: SuppliedContent | null,
+  decisions: ProposalDecision[],
+): SuppliedContent | null {
+  if (!supplied) return null;
+  const accepted = (id: string) =>
+    decisions.find((decision) => decision.proposalId === id && decision.decision === "accept");
+  const skillsDecision = accepted(SUPPLIED_SKILLS_PROPOSAL_ID);
+  const names = skillsDecision
+    ? (skillsDecision.editedLines ?? supplied.skills.map((skill) => skill.name))
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : [];
+  const skills = names.map((name) => {
+    const original = supplied.skills.find((skill) => skill.name.toLowerCase() === name.toLowerCase());
+    return (
+      original ?? {
+        id: newId("supplied"),
+        requirementId: "",
+        requirement: "Added by you in review",
+        name,
+        category: "Other",
+      }
+    );
+  });
+  const bullets = supplied.bullets.flatMap((bullet) => {
+    const decision = accepted(`supplied:${bullet.id}`);
+    if (!decision) return [];
+    const edited = decision.editedLines?.join(" ").replace(/\s+/g, " ").trim();
+    return edited === "" ? [] : [{ ...bullet, text: edited ?? bullet.text }];
+  });
+  return { skills, bullets, uncovered: supplied.uncovered, credentials: supplied.credentials };
 }
 
 /**

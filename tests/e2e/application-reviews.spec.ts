@@ -1,7 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { extractText, getDocumentProxy } from "unpdf";
 import { E2E_DATABASE_URL, E2E_OWNER_EMAIL, E2E_OWNER_PASSWORD } from "../../playwright.config";
-import { PARTLY, POLARSTEPS, SEAMFLOW, type ApplicationCase } from "../fixtures/application-cases";
+import {
+  CREDENTIAL_REQUIREMENTS,
+  PARTLY,
+  POLARSTEPS,
+  POSTING_WITH_CREDENTIALS,
+  SEAMFLOW,
+  type ApplicationCase,
+} from "../fixtures/application-cases";
 import { seedCandidateProfile } from "../helpers/embedded-db";
 
 /**
@@ -27,8 +34,12 @@ async function login(page: Page) {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
-/** Add the posting and generate in Review Mode; ends on the review page. */
-async function startReview(page: Page, posting: ApplicationCase) {
+/**
+ * Add the posting and generate in Review Mode; ends on the review page. Unless
+ * asked, "Cover missing requirements" is switched off so the resume contains
+ * only what the profile supports.
+ */
+async function startReview(page: Page, posting: ApplicationCase, options: { coverGaps?: boolean } = {}) {
   await login(page);
   await page.goto("/jobs/new");
   await page.getByLabel("Job title (optional)").fill(posting.title);
@@ -39,6 +50,9 @@ async function startReview(page: Page, posting: ApplicationCase) {
   await expect(page).toHaveURL(/\/jobs\/(?!new$)[a-z0-9]+$/);
   const jobId = page.url().split("/").pop();
   await page.goto(`/generate?mode=review&job=${jobId}`);
+  const coverGaps = page.getByRole("checkbox", { name: /Cover missing requirements/ });
+  await expect(coverGaps).toBeChecked();
+  if (!options.coverGaps) await coverGaps.uncheck();
   await page.getByRole("button", { name: "Generate Resume" }).click();
   await expect(page).toHaveURL(/\/review\/[a-z0-9]+$/, { timeout: 60_000 });
   await expect(page.getByRole("heading", { name: "Screening criteria and evidence" })).toBeVisible();
@@ -148,4 +162,85 @@ test("Seamflow: keeps the fraud portal prominent, asks for design evidence and f
   await expect(page.getByRole("heading", { name: "What the application asks for" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Project note" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Open question" })).toHaveCount(0);
+});
+
+test("covering missing requirements adds marked content only after it is accepted", async ({ page }) => {
+  await startReview(page, PARTLY, { coverGaps: true });
+
+  // The gaps are still reported as gaps; the additions are separate proposals.
+  const customers = page
+    .getByRole("listitem")
+    .filter({ hasText: "Work directly with customers" })
+    .filter({ hasText: "Still missing" });
+  await expect(customers.first()).toContainText("No evidence");
+  const addition = page.getByRole("heading", {
+    name: /Added to cover: Work directly with customers to understand how they do their work today/,
+  });
+  await expect(addition).toBeVisible();
+  await expect(addition).toContainText("Not from your profile");
+  await expect(page.getByRole("heading", { name: /^Added to cover:/ })).toHaveCount(3);
+
+  const pages = await createResumeAndReadPdf(page);
+  const added = "Work directly with customers to understand how they do their work today.";
+  expect(occurrences(pages, added)).toBe(1);
+  expect(pages[0]).toContain(PORTAL);
+  // Achievements in the most recent role are kept; a routine responsibility made room.
+  expect(pages.join(" ")).toContain("Cut largest contentful paint on product pages from 4.1s to 2.3s");
+  expect(pages.join(" ")).not.toContain("Review pull requests and mentor two junior engineers.");
+
+  const warning = page.getByRole("status").filter({ hasText: "Added to cover the job, not from your profile" });
+  await expect(warning).toContainText(added);
+  await expect(warning).toContainText("Replaced: “Review pull requests and mentor two junior engineers.”");
+  await page.goto("/resumes");
+  await expect(page.getByText("Includes unverified additions").first()).toBeVisible();
+});
+
+test("a credential the job asks for reaches the resume only when the owner enters it", async ({ page }) => {
+  await startReview(page, POSTING_WITH_CREDENTIALS, { coverGaps: true });
+
+  const card = page.getByTestId("owned-credentials");
+  await expect(card.getByRole("heading", { name: "Only you can add these" })).toBeVisible();
+  const certification = card.getByRole("listitem").filter({ hasText: CREDENTIAL_REQUIREMENTS.certification });
+  const passport = card.getByRole("listitem").filter({ hasText: CREDENTIAL_REQUIREMENTS.passport });
+  await expect(passport).toBeVisible();
+  // Covering gaps never writes a credential: no proposal mentions either one.
+  await expect(page.getByRole("heading", { name: /^Added to cover:.*(Certified|passport)/i })).toHaveCount(0);
+
+  await certification.getByRole("button", { name: "I have this" }).click();
+  // The form matches the requirement and starts empty.
+  await expect(certification.getByLabel("What is it?")).toHaveValue("certification");
+  await expect(certification.getByLabel("Name")).toHaveValue("");
+  await certification.getByRole("button", { name: "Add to this resume" }).click();
+  await expect(certification.getByRole("alert")).toContainText("Enter the name of the certification or licence.");
+
+  await certification.getByLabel("Name").fill("Certified Kubernetes Administrator");
+  await certification.getByLabel("Issued by").fill("CNCF");
+  await certification.getByLabel("Year").fill("2024");
+  // Enter adds the entry; it must not create the resume.
+  await certification.getByLabel("Year").press("Enter");
+  await expect(certification).toContainText(
+    "Will be added under Certifications: Certified Kubernetes Administrator, CNCF, 2024",
+  );
+  await expect(page).toHaveURL(/\/review\/[a-z0-9]+$/);
+
+  // Opening a form and cancelling adds nothing.
+  await passport.getByRole("button", { name: "I have this" }).click();
+  await expect(passport.getByLabel("What is it?")).toHaveValue("statement");
+  await passport.getByRole("button", { name: "Cancel" }).click();
+  await expect(card.getByRole("checkbox", { name: /Also save what I enter/ })).toBeChecked();
+
+  const pages = await createResumeAndReadPdf(page);
+  const text = pages.join(" ");
+  expect(occurrences(pages, "Certified Kubernetes Administrator")).toBe(1);
+  expect(text).toContain("CNCF");
+  expect(text).not.toMatch(/passport|permanent residency|Canadian/i);
+
+  // The requirement that was left alone is still listed as open; the answered one is not.
+  const open = page.getByRole("status").filter({ hasText: "Only you can add these" });
+  await expect(open).toContainText(CREDENTIAL_REQUIREMENTS.passport);
+  await expect(open).not.toContainText(CREDENTIAL_REQUIREMENTS.certification);
+
+  // Saved to the Master Career Profile as well, so the next application starts with it.
+  await page.goto("/profile");
+  await expect(page.locator('input[value="Certified Kubernetes Administrator"]')).toHaveCount(1);
 });

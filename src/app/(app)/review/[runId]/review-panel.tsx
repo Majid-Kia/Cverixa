@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Alert, Badge, Card } from "@/components/ui/card";
 import { Checkbox, Textarea } from "@/components/ui/fields";
 import { finalizeReviewAction } from "@/features/resume-tailoring/actions";
+import type { OwnedCredential } from "@/features/resume-tailoring/owned-credentials";
 import type { ClarifyingQuestion, Proposal, ProposalDecision } from "@/features/resume-tailoring/schema";
 import { initialActionState } from "@/lib/action-result";
+import { OwnedCredentialsCard } from "./owned-credentials-card";
 
 type Decision = "accept" | "reject" | "pending";
 
@@ -20,17 +22,22 @@ export function ReviewPanel({
   runId,
   proposals,
   question,
+  credentialGaps,
   closed,
 }: {
   runId: string;
   proposals: Proposal[];
   /** The one optional question about the selected project, if something material is missing. */
   question: ClarifyingQuestion | null;
+  /** Degrees, certifications and eligibility the job asks for; the owner may enter the ones they hold. */
+  credentialGaps: string[];
   closed: boolean;
 }) {
   const [state, action] = useActionState(finalizeReviewAction, initialActionState);
   const [answer, setAnswer] = useState("");
   const [saveAnswer, setSaveAnswer] = useState(false);
+  const [credentials, setCredentials] = useState<OwnedCredential[]>([]);
+  const [saveCredentials, setSaveCredentials] = useState(true);
   const [rows, setRows] = useState<Record<string, RowState>>(() =>
     Object.fromEntries(
       proposals.map((proposal) => [proposal.id, { decision: "pending" as Decision, edited: proposal.proposed }]),
@@ -64,8 +71,20 @@ export function ReviewPanel({
     <>
       <input type="hidden" name="answer" value={answer} />
       <input type="hidden" name="saveAnswer" value={saveAnswer && answer.trim() ? "1" : ""} />
+      <input type="hidden" name="credentials" value={JSON.stringify(credentials)} />
+      <input type="hidden" name="saveCredentials" value={saveCredentials && credentials.length > 0 ? "1" : ""} />
     </>
   );
+  const credentialsCard =
+    credentialGaps.length > 0 && !closed ? (
+      <OwnedCredentialsCard
+        requirements={credentialGaps}
+        entered={credentials}
+        onChange={setCredentials}
+        saveToProfile={saveCredentials}
+        onSaveToProfileChange={setSaveCredentials}
+      />
+    ) : null;
   const questionCard =
     question && !closed ? (
       <Card className="border-blue-200">
@@ -101,6 +120,7 @@ export function ReviewPanel({
   if (proposals.length === 0) {
     return (
       <div className="space-y-4">
+        {credentialsCard}
         {questionCard}
         <Card>
           <p className="text-muted text-sm">The AI proposed no changes to your profile content for this job.</p>
@@ -125,6 +145,7 @@ export function ReviewPanel({
       <input type="hidden" name="runId" value={runId} />
       <input type="hidden" name="decisions" value={JSON.stringify(decisions)} />
       {answerFields}
+      {credentialsCard}
       {questionCard}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" onClick={acceptAll} disabled={closed}>
@@ -154,7 +175,14 @@ export function ReviewPanel({
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="font-semibold">{proposal.label}</h3>
+                <h3 className="font-semibold">
+                  {proposal.label}
+                  {proposal.kind === "supplied_skills" || proposal.kind === "supplied_bullet" ? (
+                    <Badge tone="warning" className="ml-2 align-middle">
+                      Not from your profile
+                    </Badge>
+                  ) : null}
+                </h3>
                 {proposal.note ? <p className="text-muted mt-1 text-xs">{proposal.note}</p> : null}
               </div>
               <div className="flex items-center gap-2">
@@ -198,7 +226,11 @@ export function ReviewPanel({
                 <p className="text-muted mb-1 text-xs font-medium tracking-wide uppercase">Original</p>
                 {proposal.original.length === 0 ? (
                   <p className="text-muted text-sm">
-                    {proposal.kind === "featured_project" ? "(not shown as its own entry)" : "(empty)"}
+                    {proposal.kind === "featured_project"
+                      ? "(not shown as its own entry)"
+                      : proposal.kind === "supplied_skills" || proposal.kind === "supplied_bullet"
+                        ? "(nothing in your profile)"
+                        : "(empty)"}
                   </p>
                 ) : (
                   <ul className="list-disc space-y-1 pl-5 text-sm">

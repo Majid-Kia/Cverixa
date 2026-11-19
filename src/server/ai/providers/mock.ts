@@ -55,10 +55,16 @@ function defaultHandler(request: StructuredGenerationRequest<unknown>): unknown 
     case "job_analysis":
       return mockJobAnalysis(readDataBlock(request.user, DATA_TAGS.jobDescription) ?? "");
     case "resume_tailoring":
-      return mockTailoring(
-        parseJson<CareerProfileData>(readDataBlock(request.user, DATA_TAGS.profileJson)),
-        parseJson<JobAnalysis>(readDataBlock(request.user, DATA_TAGS.jobAnalysisJson)),
-      );
+      return {
+        ...mockTailoring(
+          parseJson<CareerProfileData>(readDataBlock(request.user, DATA_TAGS.profileJson)),
+          parseJson<JobAnalysis>(readDataBlock(request.user, DATA_TAGS.jobAnalysisJson)),
+        ),
+        gapFill: mockGapFill(
+          parseJson<{ gapsToCover?: MockGap[] }>(readDataBlock(request.user, DATA_TAGS.applicationPlanJson)),
+          parseJson<CareerProfileData>(readDataBlock(request.user, DATA_TAGS.profileJson)),
+        ),
+      };
     case "profile_import":
       return mockImport(readDataBlock(request.user, DATA_TAGS.resumeText) ?? "");
     default:
@@ -176,6 +182,33 @@ function mockRoleRequirements(lines: string[]) {
     if (requirements.length >= 12) break;
   }
   return requirements;
+}
+
+interface MockGap {
+  requirementId: string;
+  description: string;
+  kind: "skill" | "experience";
+  skills: string[];
+}
+
+/**
+ * Cover the gaps the application asked for: the posting's skill names, and
+ * the requirement's own wording as a bullet under the most recent role.
+ */
+export function mockGapFill(plan: { gapsToCover?: MockGap[] } | null, profile: CareerProfileData | null) {
+  const gaps = plan?.gapsToCover ?? [];
+  return {
+    skills: gaps
+      .filter((gap) => gap.kind === "skill")
+      .flatMap((gap) => gap.skills.map((name) => ({ requirementId: gap.requirementId, name, category: "" }))),
+    bullets: gaps
+      .filter((gap) => gap.kind === "experience")
+      .map((gap) => ({
+        requirementId: gap.requirementId,
+        entryId: profile?.experience[0]?.id ?? "",
+        text: gap.description.replace(/[.;]$/, "") + ".",
+      })),
+  };
 }
 
 export function mockTailoring(profile: CareerProfileData | null, analysis: JobAnalysis | null) {

@@ -97,6 +97,10 @@ test("quick generate produces a validated resume with a downloadable PDF", async
   await expect(page).toHaveURL(/\/resumes\/[a-z0-9]+\?generated=1$/, { timeout: 60_000 });
   await expect(page.getByText("Resume generated and saved")).toBeVisible();
   await expect(page.getByText(/Job requirements without full evidence/)).toBeVisible();
+  // "Cover missing requirements" is on by default: the required skill the profile lacks is added and flagged.
+  await expect(
+    page.getByRole("status").filter({ hasText: "Added to cover the job, not from your profile" }),
+  ).toContainText("Kubernetes");
   const url = page.url();
   const resumeId = url.match(/\/resumes\/([a-z0-9]+)/)![1];
   const pdf = await page.request.get(`/api/resumes/${resumeId}/pdf`);

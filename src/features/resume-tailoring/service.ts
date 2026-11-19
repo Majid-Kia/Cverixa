@@ -1,7 +1,8 @@
 import "server-only";
 import { resolveProviderSelection } from "@/features/ai-settings/service";
+import { hasOwnerAdditions } from "@/features/career-profile/additions";
 import { confirmedFactsOnly } from "@/features/career-profile/schema";
-import { appendProfileFact, getProfileSnapshot } from "@/features/career-profile/service";
+import { appendProfileAdditions, appendProfileFact, getProfileSnapshot } from "@/features/career-profile/service";
 import { analyzeJobDescription, getJobDescription } from "@/features/job-analysis/service";
 import { appendRevision, createResume, type ResumeRevisionView } from "@/features/resume-history/service";
 import { AppError, NotFoundError } from "@/lib/errors";
@@ -15,7 +16,14 @@ import { DEFAULT_TEMPLATE_ID, isTemplateId } from "@/templates";
 import { pageFormatSchema, resumeContentSchema, type PageFormat, type ResumeContent } from "@/types/resume-content";
 import { planApplication, reconcilePlan, toBrief } from "./application-brief";
 import { buildBaselineContent, buildChangeReport, buildTailoredContent, preserveExperience } from "./build-content";
-import { applyAnswer, applyDecisions, createProposals } from "./proposals";
+import { applySupplied, hasSupplied, listCredentialGaps, listGaps, planSupplied } from "./gap-fill";
+import {
+  applyOwnedCredentials,
+  describeOwnedCredential,
+  ownedCredentialsInputSchema,
+  toOwnerAdditions,
+} from "./owned-credentials";
+import { acceptedSupplied, applyAnswer, applyDecisions, createProposals } from "./proposals";
 import {
   applicationBriefSchema,
   changeReportSchema,
@@ -23,6 +31,7 @@ import {
   proposalDecisionSchema,
   proposalSchema,
   reviewAnswerSchema,
+  suppliedContentSchema,
   tailoringAiOutputSchema,
   type ApplicationBrief,
   type ChangeReport,
@@ -42,6 +51,12 @@ export interface GenerateResumeInput {
   providerId?: string | null;
   modelId?: string | null;
   userInstructions?: string;
+  /**
+   * Cover requirements the profile has no evidence for by adding skills and
+   * bullets that are not in the profile. Off unless the owner asks for it; the
+   * additions are marked and reported as unverified.
+   */
+  fillGaps?: boolean;
 }
 
 export interface QuickGenerateResult {
@@ -68,9 +83,19 @@ const reviewStateSchema = z.object({
   evidence: evidenceMapSchema,
   /** Null for review sessions started before the application brief existed. */
   brief: applicationBriefSchema.nullable().default(null),
+  /** Unverified additions offered as their own proposals (null when gaps are not being covered). */
+  supplied: suppliedContentSchema.nullable().default(null),
+  /**
+   * Degrees, certifications and eligibility the job asks for and the profile
+   * does not show. Never written by the application; the owner may enter the
+   * ones they hold. Absent on review sessions started before this was stored.
+   */
+  credentialGaps: z.array(z.string()).optional(),
   pageFormat: pageFormatSchema.default("A4"),
 });
 type ReviewState = z.infer<typeof reviewStateSchema>;
+
+const credentialGapsOf = (state: ReviewState): string[] => state.credentialGaps ?? state.supplied?.credentials ?? [];
 
 function readReviewState(raw: unknown): ReviewState {
   const state = reviewStateSchema.parse(raw);
@@ -85,7 +110,7 @@ function readReviewState(raw: unknown): ReviewState {
   return {
     ...state,
     tailored,
-    proposals: createProposals(state.baseline, tailored),
+    proposals: createProposals(state.baseline, tailored, state.supplied),
     changeReport: buildChangeReport({
       baseline: state.baseline,
       content: tailored,
@@ -156,6 +181,7 @@ export async function generateResume(
         analysis,
         evidence: initialPlan.evidence,
         plan: initialPlan,
+        gaps: input.fillGaps ? listGaps(analysis, initialPlan.evidence) : [],
         userInstructions: input.userInstructions,
       }),
       temperature: 0.2,
@@ -172,6 +198,11 @@ export async function generateResume(
       featured: plan.featured,
       brief,
     });
+    // Requested gap filling: decided after validation, on the final evidence, and kept apart
+    // from validated content so it can be reported and reviewed as unverified.
+    const supplied = input.fillGaps
+      ? planSupplied({ profile, analysis, evidence, content: built.content, model: aiResult.data.gapFill })
+      : null;
     if (built.validationStatus === "failed") {
       await finishRun(run.id, "failed", "Every generated claim failed factual validation.");
       throw new AppError(
@@ -200,10 +231,10 @@ export async function generateResume(
         revision: {
           templateId,
           pageFormat,
-          content: built.content,
-          changeReport: built.changeReport,
+          content: applySupplied(built.content, supplied),
+          changeReport: { ...built.changeReport, supplied },
           generationMetadata: metadata,
-          validationStatus: built.validationStatus,
+          validationStatus: hasSupplied(supplied) ? "with_additions" : built.validationStatus,
           careerProfileRevisionId: snapshot.revisionId,
         },
       });
@@ -228,7 +259,7 @@ export async function generateResume(
     }
 
     const baseline = buildBaselineContent(profile);
-    const proposals = createProposals(baseline, built.content);
+    const proposals = createProposals(baseline, built.content, supplied);
     const state: ReviewState = {
       baseline,
       tailored: built.content,
@@ -236,6 +267,8 @@ export async function generateResume(
       changeReport: built.changeReport,
       evidence,
       brief,
+      supplied,
+      credentialGaps: listCredentialGaps(analysis, evidence),
       pageFormat,
     };
     await prisma.generationRun.update({
@@ -286,6 +319,8 @@ export interface ReviewRunView {
   evidence: EvidenceMap;
   /** Null for review sessions started before the application brief existed. */
   brief: ApplicationBrief | null;
+  /** Degrees, certifications and eligibility the job asks for that only the owner can add. */
+  credentialGaps: string[];
   resultResumeId: string | null;
 }
 
@@ -310,6 +345,7 @@ export async function getReviewRun(ownerId: string, runId: string): Promise<Revi
     changeReport: state.changeReport,
     evidence: state.evidence,
     brief: state.brief,
+    credentialGaps: credentialGapsOf(state),
     resultResumeId: run.resultResumeId,
   };
 }
@@ -318,13 +354,16 @@ export async function getReviewRun(ownerId: string, runId: string): Promise<Revi
  * FR-006 step 6: build the tailored resume from accepted proposals and save it
  * as a new resume. An answer to the brief's question is optional; when given
  * it is added to the entry it is about in the owner's own words, and stored on
- * the Master Career Profile only when the owner asks for that.
+ * the Master Career Profile only when the owner asks for that. The same goes
+ * for degrees, certifications and eligibility the owner enters against a
+ * listed requirement: they are placed as typed, never written or checked here.
  */
 export async function finalizeReview(
   ownerId: string,
   runId: string,
   decisionsInput: unknown,
   answerInput?: unknown,
+  credentialsInput?: unknown,
 ): Promise<{ resumeId: string; revision: ResumeRevisionView }> {
   const run = await prisma.generationRun.findFirst({
     where: { id: runId, ownerId },
@@ -336,7 +375,24 @@ export async function finalizeReview(
   const state = readReviewState(run.proposal);
   const decisions: ProposalDecision[] = z.array(proposalDecisionSchema).parse(decisionsInput);
   const answer = reviewAnswerSchema.parse(answerInput ?? {});
-  let content: ResumeContent = applyDecisions(state.baseline, state.tailored, state.proposals, decisions);
+  const credentials = ownedCredentialsInputSchema.safeParse(credentialsInput ?? {});
+  if (!credentials.success) {
+    throw new AppError(
+      "invalid_credentials",
+      'One of the items you added under "Only you can add these" is incomplete or too long. Remove it or enter it again.',
+    );
+  }
+  const owned = toOwnerAdditions(credentials.data.items, credentialGapsOf(state));
+  const entered = new Set(owned.accepted.map((item) => item.requirement));
+  const acceptedAdditions = acceptedSupplied(state.supplied, decisions);
+  // A requirement the owner has now answered is no longer listed as open.
+  const supplied = acceptedAdditions
+    ? { ...acceptedAdditions, credentials: acceptedAdditions.credentials.filter((text) => !entered.has(text)) }
+    : null;
+  let content: ResumeContent = applySupplied(
+    applyDecisions(state.baseline, state.tailored, state.proposals, decisions),
+    supplied,
+  );
   let careerProfileRevisionId = run.careerProfileRevisionId;
   let brief = state.brief;
   const answerNotes: string[] = [];
@@ -366,6 +422,23 @@ export async function finalizeReview(
     );
     brief = state.brief ? { ...state.brief, question: null } : null;
   }
+  if (hasOwnerAdditions(owned.additions)) {
+    content = applyOwnedCredentials(content, owned.additions);
+    answerNotes.push(
+      `Added what you entered yourself: ${owned.accepted.map(describeOwnedCredential).join("; ")}. It was placed as you wrote it and was not written or checked by AI.`,
+    );
+    if (credentials.data.saveToProfile) {
+      const saved = await appendProfileAdditions(ownerId, owned.additions);
+      if (saved) {
+        if (saved.previousRevisionId === careerProfileRevisionId) careerProfileRevisionId = saved.revisionId;
+        answerNotes.push("What you entered was also saved to your Master Career Profile.");
+      } else {
+        answerNotes.push(
+          "What you entered could not be saved to the Master Career Profile; it was added to this resume only.",
+        );
+      }
+    }
+  }
   const accepted = state.proposals.filter((proposal) =>
     decisions.some((decision) => decision.proposalId === proposal.id && decision.decision === "accept"),
   ).length;
@@ -387,6 +460,7 @@ export async function finalizeReview(
       `Review Mode: ${accepted} of ${state.proposals.length} proposals accepted.`,
       ...answerNotes,
     ],
+    supplied,
     // The brief describes the resume that was actually saved.
     brief: brief
       ? {
@@ -406,7 +480,11 @@ export async function finalizeReview(
       content,
       changeReport,
       generationMetadata: metadata,
-      validationStatus: state.changeReport.rejectedClaims.length > 0 ? "passed_with_rejections" : "passed",
+      validationStatus: hasSupplied(supplied)
+        ? "with_additions"
+        : state.changeReport.rejectedClaims.length > 0
+          ? "passed_with_rejections"
+          : "passed",
       careerProfileRevisionId,
     },
   });

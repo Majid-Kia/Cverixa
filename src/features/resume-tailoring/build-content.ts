@@ -426,5 +426,6 @@ export function buildChangeReport(input: {
     missingRequirements: missingRequirementSummaries(evidence),
     notes: notes.slice(0, 20),
     brief: input.brief ?? null,
+    supplied: null,
   };
 }

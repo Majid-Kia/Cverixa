@@ -26,6 +26,7 @@ export async function generateResumeAction(_previous: ActionState, formData: For
       providerId: String(formData.get("providerId") ?? "") || null,
       modelId: String(formData.get("modelId") ?? "") || null,
       userInstructions: String(formData.get("userInstructions") ?? ""),
+      fillGaps: formData.get("fillGaps") === "on",
     });
     destination = result.kind === "quick" ? `/resumes/${result.resumeId}?generated=1` : `/review/${result.runId}`;
   } catch (error) {
@@ -44,10 +45,19 @@ export async function finalizeReviewAction(_previous: ActionState, formData: For
     const runId = String(formData.get("runId") ?? "");
     const raw = formData.get("decisions");
     if (!runId || typeof raw !== "string") return failure("Missing review decisions.");
-    const result = await finalizeReview(user.id, runId, JSON.parse(raw), {
-      text: String(formData.get("answer") ?? "").slice(0, 1000),
-      saveToProfile: formData.get("saveAnswer") === "1",
-    });
+    const result = await finalizeReview(
+      user.id,
+      runId,
+      JSON.parse(raw),
+      {
+        text: String(formData.get("answer") ?? "").slice(0, 1000),
+        saveToProfile: formData.get("saveAnswer") === "1",
+      },
+      {
+        items: JSON.parse(String(formData.get("credentials") || "[]")),
+        saveToProfile: formData.get("saveCredentials") === "1",
+      },
+    );
     resumeId = result.resumeId;
   } catch (error) {
     if (error instanceof AppError) return failure(error.message);
