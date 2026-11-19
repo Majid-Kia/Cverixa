@@ -321,6 +321,8 @@ export interface ReviewRunView {
   brief: ApplicationBrief | null;
   /** Degrees, certifications and eligibility the job asks for that only the owner can add. */
   credentialGaps: string[];
+  /** Requirements that a proposed addition (a supplied skill or bullet) would cover. */
+  coveredRequirementIds: string[];
   resultResumeId: string | null;
 }
 
@@ -346,6 +348,11 @@ export async function getReviewRun(ownerId: string, runId: string): Promise<Revi
     evidence: state.evidence,
     brief: state.brief,
     credentialGaps: credentialGapsOf(state),
+    coveredRequirementIds: [
+      ...new Set(
+        [...(state.supplied?.skills ?? []), ...(state.supplied?.bullets ?? [])].map((item) => item.requirementId),
+      ),
+    ],
     resultResumeId: run.resultResumeId,
   };
 }

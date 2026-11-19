@@ -1,5 +1,5 @@
 import type { CareerProfileData } from "@/features/career-profile/schema";
-import { containsTerm, normalizeTerm } from "@/features/job-analysis/keywords";
+import { containsTerm, findTechKeywords, normalizeTerm } from "@/features/job-analysis/keywords";
 import type { JobAnalysis, JobRequirement } from "@/features/job-analysis/schema";
 import type { EvidenceMap, EvidenceRef, EvidenceStatus, RequirementMatch } from "./schema";
 import { signalsAsked, type EvidenceSignal } from "./signals";
@@ -372,6 +372,63 @@ export function listProfileFacts(profile: CareerProfileData): ProfileFact[] {
 }
 
 const TECHNICAL_CATEGORIES = new Set(["technical_skill", "preferred_skill", "qualification"]);
+const SKILL_CATEGORIES = new Set(["technical_skill", "preferred_skill"]);
+
+/** Engineering disciplines that a role title states outright ("Staff Frontend Engineer"). */
+const DISCIPLINE_STEMS = new Set(
+  ["frontend", "backend", "fullstack", "mobile", "ios", "android", "web", "devops", "sre", "qa", "embedded"].map(stem),
+);
+
+/** Everyday words that describe a kind of work without naming a technology. */
+const DESCRIPTIVE_STEMS = new Set([
+  ...GENERIC_STEMS,
+  ...DISCIPLINE_STEMS,
+  ...["production", "grade", "modern", "scalable", "scale", "large", "complex", "client", "server", "side"].map(stem),
+]);
+
+/** Entries of the technical vocabulary that are practices, not named technologies. */
+const SOFT_KEYWORDS = new Set(["architecture", "leadership", "mentoring", "agile", "scrum"]);
+
+/**
+ * Whether a related skill names a specific technology ("Kubernetes",
+ * "Next.js", "Material UI") as opposed to describing a kind of work
+ * ("frontend applications", "unit testing"). Unknown terms count as named, so
+ * a tool the profile does not mention is never treated as covered by related work.
+ */
+export function isNamedTechnology(skill: string): boolean {
+  const raw = skill.trim();
+  if (!raw) return false;
+  if (findTechKeywords(raw).some((term) => !SOFT_KEYWORDS.has(term))) return true;
+  if (/[0-9.+#/]/.test(raw)) return true;
+  if (/[a-z][A-Z]|[A-Z]{2}/.test(raw)) return true;
+  const words = normalizeTerm(raw)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (words.length === 0) return false;
+  if (words.every((word) => DESCRIPTIVE_STEMS.has(stem(word)) || STOPWORDS.has(word))) return false;
+  if (words.length === 1) return true;
+  return raw
+    .split(/\s+/)
+    .slice(1)
+    .some((word) => /^[A-Z]/.test(word));
+}
+
+/** Whether a requirement is about one or more specific, named technologies. */
+export function namesTechnology(requirement: JobRequirement): boolean {
+  return (
+    requirement.relatedSkills.some(isNamedTechnology) ||
+    findTechKeywords(requirement.description).some((term) => !SOFT_KEYWORDS.has(term))
+  );
+}
+
+/**
+ * A requirement filed as a skill that describes a kind of work rather than a
+ * tool, e.g. "experience building production-grade frontend applications". It
+ * is matched like a responsibility: on what the profile's statements say.
+ */
+export function isDescriptiveSkill(requirement: JobRequirement): boolean {
+  return SKILL_CATEGORIES.has(requirement.category) && !namesTechnology(requirement);
+}
 
 /** Precomputed view of a requirement used to score statements against it. */
 export interface RequirementMatcher {
@@ -386,7 +443,7 @@ export interface RequirementMatcher {
 }
 
 export function buildMatcher(requirement: JobRequirement): RequirementMatcher {
-  const technical = TECHNICAL_CATEGORIES.has(requirement.category);
+  const technical = TECHNICAL_CATEGORIES.has(requirement.category) && !isDescriptiveSkill(requirement);
   const words = new Map<string, number>();
   for (const word of extractDescriptionTerms(requirement)) {
     for (const part of word.split(/[^a-z0-9+#]+/).filter((piece) => piece.length >= 3)) {
@@ -514,6 +571,28 @@ function matchRequirement(
     }
   }
 
+  // A discipline the requirement asks for and a role title states ("frontend" and
+  // "Staff Frontend Engineer") is direct evidence, unless the requirement is about a named tool.
+  if (TECHNICAL_CATEGORIES.has(requirement.category) && !namesTechnology(requirement)) {
+    const asked = [...stemSet(`${requirement.relatedSkills.join(" ")} ${requirement.description}`)].filter((value) =>
+      DISCIPLINE_STEMS.has(value),
+    );
+    if (asked.length > 0) {
+      profile.experience.forEach((entry) => {
+        const title = stemSet(entry.title);
+        if (!asked.some((value) => title.has(value))) return;
+        const label = `${entry.title} at ${entry.employer}`;
+        push(strong, {
+          id: entry.id,
+          kind: "experience",
+          label,
+          parentId: entry.id,
+          source: `${label} (${period(entry.startDate, entry.endDate)})`,
+        });
+      });
+    }
+  }
+
   const scored = facts
     .map((fact) => ({ fact, score: factScore(matcher, fact) }))
     .filter((item) => item.score >= 1)
@@ -573,7 +652,8 @@ export function factRef(fact: ProfileFact): EvidenceRef {
 function extractDescriptionTerms(requirement: JobRequirement): string[] {
   if (
     requirement.relatedSkills.length > 0 &&
-    (requirement.category === "technical_skill" || requirement.category === "preferred_skill")
+    SKILL_CATEGORIES.has(requirement.category) &&
+    !isDescriptiveSkill(requirement)
   ) {
     return [];
   }

@@ -173,6 +173,8 @@ test("covering missing requirements adds marked content only after it is accepte
     .filter({ hasText: "Work directly with customers" })
     .filter({ hasText: "Still missing" });
   await expect(customers.first()).toContainText("No evidence");
+  // ...and the criterion says an addition is on offer for it.
+  await expect(customers.first()).toContainText("Addition proposed");
   const addition = page.getByRole("heading", {
     name: /Added to cover: Work directly with customers to understand how they do their work today/,
   });
@@ -191,6 +193,9 @@ test("covering missing requirements adds marked content only after it is accepte
   const warning = page.getByRole("status").filter({ hasText: "Added to cover the job, not from your profile" });
   await expect(warning).toContainText(added);
   await expect(warning).toContainText("Replaced: “Review pull requests and mentor two junior engineers.”");
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Work directly with customers" }).filter({ hasText: "Still missing" }),
+  ).toContainText("Covered by an addition");
   await page.goto("/resumes");
   await expect(page.getByText("Includes unverified additions").first()).toBeVisible();
 });

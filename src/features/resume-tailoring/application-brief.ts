@@ -8,6 +8,7 @@ import {
   factScore,
   listProfileFacts,
   matchEvidence,
+  namesTechnology,
   stemSet,
   type ProfileFact,
   type RequirementMatcher,
@@ -339,8 +340,9 @@ function cleanLine(value: string, max: number): string {
  * Fold the model's evidence plan into the deterministic one. The model may
  * point at statements the term matcher missed and may prefer another project,
  * but every id must exist in the confirmed profile, a criterion that asks for
- * stated evidence stays open until a cited statement states it, and technical
- * requirements are never upgraded on the model's say-so.
+ * stated evidence stays open until a cited statement states it, and a
+ * requirement for a named tool or a qualification is at most partly supported
+ * by statements that do not name it.
  */
 export function reconcilePlan(
   plan: ApplicationPlan,
@@ -363,18 +365,31 @@ export function reconcilePlan(
     const evidence = [...criterion.evidence, ...added.map((fact) => ({ ...factRef(fact), basis: "model" as const }))];
     const texts = evidence.map((ref) => byId.get(ref.id)?.text ?? "");
     const missingSignals = asked.filter((signal) => !texts.some((text) => signal.shows.test(text)));
+    // A named tool, a degree or years of experience is not shown by related statements: those
+    // can make the criterion partly supported, never supported. Anything else is about what the
+    // work was, which the cited statements do show.
+    const strict =
+      TECHNICAL.has(criterion.category) &&
+      (!requirement || requirement.category === "qualification" || namesTechnology(requirement));
     let status = criterion.status;
-    if (!TECHNICAL.has(criterion.category) && added.length > 0) {
-      if (status === "not_evidenced") status = "partially_supported";
-      else if (status === "partially_supported" && missingSignals.length === 0) status = "supported";
+    if (added.length > 0) {
+      if (status === "not_evidenced") status = !strict && added.length >= 2 ? "supported" : "partially_supported";
+      else if (status === "partially_supported" && !strict) status = "supported";
     }
     if (missingSignals.length > 0 && status === "supported") status = "partially_supported";
+    const named = requirement?.relatedSkills.filter(Boolean).slice(0, 3).join(", ");
+    const stillMissing =
+      status === criterion.status
+        ? criterion.missing
+        : strict
+          ? `The statements above are related work, but none of them names ${named || "this requirement"}.`
+          : "Only one confirmed statement speaks to this.";
     const missing =
       missingSignals.length > 0
         ? missingSignals.map((signal) => signal.gap).join(" ")
         : status === "supported"
           ? ""
-          : cleanLine(proposed.gap, 300) || criterion.missing;
+          : cleanLine(proposed.gap, 300) || stillMissing;
     return {
       ...criterion,
       status,

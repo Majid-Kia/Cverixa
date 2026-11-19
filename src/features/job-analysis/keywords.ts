@@ -91,12 +91,17 @@ export const TECH_KEYWORDS: string[] = [
 
 /** Lower-case, collapse whitespace, strip most punctuation while keeping tech tokens like c# and .net. */
 export function normalizeTerm(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[‘’“”]/g, "'")
-    .replace(/[^a-z0-9#+.\-/ ]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    value
+      .toLowerCase()
+      .replace(/[‘’“”]/g, "'")
+      .replace(/[^a-z0-9#+.\-/ ]+/g, " ")
+      // "front-end", "front end" and "frontend" are the same word.
+      .replace(/\b(front|back)[ -]end\b/g, "$1end")
+      .replace(/\bfull[ -]stack\b/g, "fullstack")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /** Whether `term` appears in `text` as a whole word/phrase (case-insensitive). */
