@@ -270,6 +270,22 @@ Send your CV with a short note about the hardest thing you have built.`,
 
 export const APPLICATION_CASES = [PARTLY, POLARSTEPS, SEAMFLOW];
 
+/** A posting that asks for a certification and a passport the profile does not show (not one of the three reviews). */
+export const CREDENTIAL_REQUIREMENTS = {
+  certification: "You hold a current Certified Kubernetes Administrator certification from the CNCF",
+  passport: "You must already hold a Canadian passport or permanent residency",
+};
+export const POSTING_WITH_CREDENTIALS: ApplicationCase = {
+  company: "Initech",
+  title: "Platform Engineer",
+  text: `Platform Engineer at Initech
+
+What you need
+- ${CREDENTIAL_REQUIREMENTS.certification}
+- ${CREDENTIAL_REQUIREMENTS.passport}
+- Build React features for the internal platform dashboard`,
+};
+
 /** A posting with stated office, relocation and eligibility requirements (not one of the three reviews). */
 export const POSTING_WITH_LOGISTICS = `Frontend Engineer
 

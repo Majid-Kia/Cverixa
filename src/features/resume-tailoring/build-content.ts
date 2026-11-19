@@ -146,10 +146,14 @@ export function buildTailoredContent(input: {
     .map((skill) => ({ id: skill.id, name: skill.name, category: skill.category }));
 
   const sectionOrder = normalizeSectionOrder(aiOutput.sectionOrder);
+  const proposedSummary = aiOutput.summary.text.trim();
 
   const draft = resumeContentSchema.parse({
     personal: profile.personal,
-    summary: { text: aiOutput.summary.text.trim() || profile.summary.text, sourceIds: aiOutput.summary.sourceIds },
+    summary: {
+      text: proposedSummary && proposedSummary.length <= MAX_SUMMARY_LENGTH ? proposedSummary : profile.summary.text,
+      sourceIds: aiOutput.summary.sourceIds,
+    },
     sectionOrder,
     hiddenSections: [],
     experience,
@@ -320,18 +324,25 @@ function projectBullets(project: ProjectEntry): ResumeBullet[] {
   }));
 }
 
+const MAX_BULLET_LENGTH = 1000;
+const MAX_SUMMARY_LENGTH = 2000;
+
 function toBullets(
   bullets: Array<{ text: string; sourceIds: string[] }>,
   sourceTexts: Map<string, string>,
 ): ResumeBullet[] {
-  return bullets
-    .filter((bullet) => bullet.text.trim())
-    .map((bullet) => ({
-      id: newId("b"),
-      text: bullet.text.trim(),
-      sourceIds: [...new Set(bullet.sourceIds)],
-      kind: classifyBullet(bullet.text, bullet.sourceIds, sourceTexts),
-    }));
+  return (
+    bullets
+      // A bullet beyond the stored limit is unusable; dropping it lets the original statement stand
+      // instead of failing the whole generation.
+      .filter((bullet) => bullet.text.trim() && bullet.text.trim().length <= MAX_BULLET_LENGTH)
+      .map((bullet) => ({
+        id: newId("b"),
+        text: bullet.text.trim(),
+        sourceIds: [...new Set(bullet.sourceIds)],
+        kind: classifyBullet(bullet.text, bullet.sourceIds, sourceTexts),
+      }))
+  );
 }
 
 function classifyBullet(text: string, sourceIds: string[], sourceTexts: Map<string, string>): ResumeBullet["kind"] {
@@ -415,5 +426,6 @@ export function buildChangeReport(input: {
     missingRequirements: missingRequirementSummaries(evidence),
     notes: notes.slice(0, 20),
     brief: input.brief ?? null,
+    supplied: null,
   };
 }

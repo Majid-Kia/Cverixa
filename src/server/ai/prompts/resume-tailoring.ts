@@ -1,6 +1,7 @@
 import type { CareerProfileData } from "@/features/career-profile/schema";
 import type { JobAnalysis } from "@/features/job-analysis/schema";
 import type { ApplicationPlan } from "@/features/resume-tailoring/application-brief";
+import type { Gap } from "@/features/resume-tailoring/gap-fill";
 import type { EvidenceMap } from "@/features/resume-tailoring/schema";
 import { DATA_TAGS, dataBlock, UNTRUSTED_DATA_RULES } from "./tags";
 
@@ -13,6 +14,7 @@ ${UNTRUSTED_DATA_RULES}
 - Related experience is not evidence of something more specific. Never treat it as proof of customer or user interviews, observing users, design ownership, usage or adoption tracking, metrics, or AI features. Cite a statement for these only when it says so outright, and never write such a claim in the summary or a bullet unless a cited source states it.
 - evidencePlan.featuredProject: the application plan names the project it will bring onto the first page. Repeat its entryId, or, only if another role or project is clearly a closer match to what this role is hired to do, give that entry's id with up to three of its statement ids and a short title taken from those statements. Leave entryId empty when no project fits.
 - evidencePlan.question: at most one short, concrete question about a single detail of the featured project that is missing from the profile and would materially strengthen this application (for example "What did you change in the fraud-detection portal after seeing someone use it?"). Leave it empty when nothing material is missing. Never answer it yourself.
+- gapFill: fill it only when the application plan lists gapsToCover; otherwise leave it empty. Those are job requirements the profile does not support, or supports only in part, which the owner has asked to have covered anyway. When a gap has a "missing" note, the profile already shows related work: write the bullet about the missing part and do not repeat what the profile already says. gapFill is the only place where you may write content that is not in the profile, and the application shows it to the owner as unverified. For a gap of kind "skill", return each skill name the requirement names, with the profile skill category it fits best. For a gap of kind "experience", write one plain resume bullet of at most 30 words that states the experience the requirement asks for, and give the id of the role it fits best. Do not put numbers, metrics, employer names, or tools the requirement does not name in a gap bullet. Never cover degrees, certifications or work eligibility, and never put gap content in summary, experience or projects.
 - Describe each piece of work once. Do not repeat the same statement in more than one role, project or section; the application moves the featured project's bullets to the first page itself.
 - You may only reword, reorder, select, shorten or combine facts that already exist in the profile. Every bullet must cite the ids of the profile statements, achievements or outcomes it is derived from in sourceIds. Bullets without sourceIds will be discarded.
 - Preserve numerical metrics exactly as written. Do not add numbers that are not in the sources.
@@ -33,6 +35,8 @@ export function buildResumeTailoringUserPrompt(input: {
   evidence: EvidenceMap;
   /** Criteria, evidence and featured project worked out before drafting. */
   plan?: ApplicationPlan;
+  /** Requirements without evidence that the owner asked to have covered (empty when not asked). */
+  gaps?: Gap[];
   userInstructions?: string;
 }): string {
   const parts = [
@@ -62,6 +66,14 @@ export function buildResumeTailoringUserPrompt(input: {
                 placement: input.plan.featured.placement,
               }
             : null,
+          gapsToCover: (input.gaps ?? []).map((gap) => ({
+            requirementId: gap.requirementId,
+            description: gap.description,
+            kind: gap.kind,
+            skills: gap.skills,
+            missing: gap.missing,
+            suggestedRoleId: gap.entryId,
+          })),
         }),
       ),
     );

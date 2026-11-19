@@ -80,6 +80,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ runId: 
           runId={run.runId}
           proposals={run.proposals}
           question={brief?.question ?? null}
+          credentialGaps={run.credentialGaps}
           closed={run.status !== "awaiting_review"}
         />
         <div className="space-y-4">

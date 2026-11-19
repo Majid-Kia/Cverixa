@@ -395,3 +395,234 @@ describe("manual application tracking", () => {
     expect((await s.history.getResume(ownerId, first.id)).applicationStatus).toBe(saved);
   });
 });
+
+describe("job analysis with over-long model output", () => {
+  it("saves the analysis when the model returns a seniority longer than the stored limit (regression)", async () => {
+    const { getProvider } = await import("@/server/ai/registry");
+    const { jobAnalysisAiOutputSchema } = await import("@/features/job-analysis/schema");
+    const seniority =
+      "Senior level: the posting asks for at least five years of professional frontend experience, the ability to lead projects independently and to mentor others";
+    using generateStructured = vi.spyOn(getProvider("mock"), "generateStructured").mockResolvedValueOnce({
+      data: jobAnalysisAiOutputSchema.parse({
+        jobTitle: "Senior Frontend Engineer",
+        seniority,
+        summary: "React role.",
+        requirements: [{ category: "technical_skill", description: "React", relatedSkills: ["React"] }],
+      }),
+      modelId: "mock-deterministic-v1",
+      durationMs: 1,
+    } as never);
+    const job = await s.jobs.createJobDescription(ownerId, {
+      originalText: JOB_TEXT,
+      title: "",
+      company: "Initech",
+      location: "",
+      sourceUrl: "",
+      notes: "",
+    });
+    const analysed = await s.jobs.analyzeJobDescription(ownerId, job.id);
+    expect(generateStructured).toHaveBeenCalledTimes(1);
+    expect(analysed.analyzedAt).not.toBeNull();
+    expect(analysed.analysis?.seniority.length).toBeLessThanOrEqual(100);
+    expect(seniority.startsWith(analysed.analysis!.seniority)).toBe(true);
+    expect(analysed.analysis?.requirements).toHaveLength(1);
+    // The stored analysis reads back, so generating from this job works.
+    expect((await s.jobs.getJobDescription(ownerId, job.id)).analysis?.jobTitle).toBe("Senior Frontend Engineer");
+    await s.jobs.deleteJobDescription(ownerId, job.id);
+  });
+});
+
+describe("covering requirements that have no evidence (opt-in)", () => {
+  let jobId: string;
+
+  it("adds missing skills in Quick mode only when asked, and marks them as unverified", async () => {
+    const job = await s.jobs.createJobDescription(ownerId, {
+      originalText: JOB_TEXT,
+      title: "Senior Frontend Engineer",
+      company: "Hooli",
+      location: "",
+      sourceUrl: "",
+      notes: "",
+    });
+    jobId = job.id;
+    const profileBefore = await s.profile.getProfileSnapshot(ownerId);
+
+    const strict = await s.tailoring.generateResume(ownerId, { jobDescriptionId: jobId, mode: "quick" });
+    if (strict.kind !== "quick") throw new Error("expected a quick result");
+    expect(strict.revision.content.skills.some((skill) => /kubernetes|java$/i.test(skill.name))).toBe(false);
+    expect(strict.revision.changeReport?.supplied).toBeNull();
+    expect(strict.revision.validationStatus).not.toBe("with_additions");
+
+    const filled = await s.tailoring.generateResume(ownerId, {
+      jobDescriptionId: jobId,
+      mode: "quick",
+      fillGaps: true,
+    });
+    if (filled.kind !== "quick") throw new Error("expected a quick result");
+    const added = filled.revision.content.skills.filter((skill) => skill.supplied);
+    // The mock analysis also lists "mentoring" as a skill the profile does not name.
+    expect(added.map((skill) => skill.name)).toEqual(expect.arrayContaining(["Kubernetes", "Java"]));
+    expect(filled.revision.validationStatus).toBe("with_additions");
+    expect(filled.revision.changeReport?.supplied?.skills.map((skill) => skill.name)).toEqual(
+      added.map((skill) => skill.name),
+    );
+    // The gap is still reported as a gap, and the Master Career Profile is not changed.
+    expect(filled.revision.changeReport?.missingRequirements.some((line) => /kubernetes/i.test(line))).toBe(true);
+    const profileAfter = await s.profile.getProfileSnapshot(ownerId);
+    expect(profileAfter.revisionId).toBe(profileBefore.revisionId);
+    expect(profileAfter.data.skills.some((skill) => /kubernetes/i.test(skill.name))).toBe(false);
+  });
+
+  it("offers additions as separate proposals in Review Mode and applies only the accepted ones", async () => {
+    const result = await s.tailoring.generateResume(ownerId, {
+      jobDescriptionId: jobId,
+      mode: "review",
+      fillGaps: true,
+    });
+    if (result.kind !== "review") throw new Error("expected a review run");
+    const run = await s.tailoring.getReviewRun(ownerId, result.runId);
+    const skills = run.proposals.find((proposal) => proposal.kind === "supplied_skills")!;
+    expect(skills.proposed).toEqual(expect.arrayContaining(["Kubernetes", "Java"]));
+    expect(skills.note).toMatch(/Not in your profile/);
+
+    const finalized = await s.tailoring.finalizeReview(ownerId, result.runId, [
+      { proposalId: skills.id, decision: "accept", editedLines: ["Kubernetes"] },
+    ]);
+    const added = finalized.revision.content.skills.filter((skill) => skill.supplied).map((skill) => skill.name);
+    expect(added).toEqual(["Kubernetes"]);
+    expect(finalized.revision.validationStatus).toBe("with_additions");
+    expect(finalized.revision.changeReport?.supplied?.skills.map((skill) => skill.name)).toEqual(["Kubernetes"]);
+
+    // Leaving the proposal undecided adds nothing.
+    const second = await s.tailoring.generateResume(ownerId, {
+      jobDescriptionId: jobId,
+      mode: "review",
+      fillGaps: true,
+    });
+    if (second.kind !== "review") throw new Error("expected a review run");
+    const untouched = await s.tailoring.finalizeReview(ownerId, second.runId, []);
+    expect(untouched.revision.content.skills.some((skill) => skill.supplied)).toBe(false);
+    expect(untouched.revision.validationStatus).not.toBe("with_additions");
+  });
+});
+
+describe("credentials only the owner can add (Review Mode)", () => {
+  const CERT = "You hold a current Certified Kubernetes Administrator certification from the CNCF";
+  const PASSPORT = "You must already hold a Canadian passport or permanent residency";
+  let jobId: string;
+
+  async function startReview(fillGaps: boolean) {
+    const result = await s.tailoring.generateResume(ownerId, { jobDescriptionId: jobId, mode: "review", fillGaps });
+    if (result.kind !== "review") throw new Error("expected a review run");
+    return s.tailoring.getReviewRun(ownerId, result.runId);
+  }
+
+  it("lists them without writing them, whether or not gaps are being covered", async () => {
+    const job = await s.jobs.createJobDescription(ownerId, {
+      originalText: `Platform Engineer
+
+What you need
+- ${CERT}
+- ${PASSPORT}
+- Build React features for the internal platform dashboard`,
+      title: "Platform Engineer",
+      company: "Initech",
+      location: "",
+      sourceUrl: "",
+      notes: "",
+    });
+    jobId = job.id;
+
+    for (const fillGaps of [false, true]) {
+      const run = await startReview(fillGaps);
+      expect(run.credentialGaps).toEqual([CERT, PASSPORT]);
+      expect(JSON.stringify(run.proposals)).not.toMatch(/Certified Kubernetes|passport/i);
+      const untouched = await s.tailoring.finalizeReview(ownerId, run.runId, []);
+      expect(JSON.stringify(untouched.revision.content)).not.toMatch(/Certified Kubernetes|passport/i);
+    }
+  });
+
+  it("places what the owner enters on that resume only, as typed", async () => {
+    const run = await startReview(true);
+    const before = await s.profile.getProfileSnapshot(ownerId);
+    const finalized = await s.tailoring.finalizeReview(ownerId, run.runId, [], undefined, {
+      items: [
+        {
+          kind: "certification",
+          requirement: CERT,
+          name: "Certified Kubernetes Administrator",
+          issuer: "CNCF",
+          date: "2024",
+        },
+        // Not a requirement this review listed: ignored.
+        { kind: "certification", requirement: "Something else", name: "Made-up Certificate" },
+      ],
+    });
+    const content = finalized.revision.content;
+    expect(content.certifications.at(-1)).toEqual(
+      expect.objectContaining({ name: "Certified Kubernetes Administrator", issuer: "CNCF", date: "2024" }),
+    );
+    expect(JSON.stringify(content)).not.toMatch(/Made-up Certificate|passport/i);
+    const report = finalized.revision.changeReport;
+    expect(report?.notes.join(" ")).toMatch(
+      /Added what you entered yourself: Certified Kubernetes Administrator, CNCF, 2024\. It was placed as you wrote it/,
+    );
+    // The answered requirement is no longer listed as open; the other one still is.
+    expect(report?.supplied?.credentials).toEqual([PASSPORT]);
+    // Entering a credential is not an AI addition.
+    expect(finalized.revision.validationStatus).not.toBe("with_additions");
+    const after = await s.profile.getProfileSnapshot(ownerId);
+    expect(after.revisionId).toBe(before.revisionId);
+  });
+
+  it("also saves the entries to the Master Career Profile when asked", async () => {
+    const run = await startReview(false);
+    const before = await s.profile.getProfileSnapshot(ownerId);
+    const finalized = await s.tailoring.finalizeReview(ownerId, run.runId, [], undefined, {
+      items: [
+        {
+          kind: "certification",
+          requirement: CERT,
+          name: "Certified Kubernetes Administrator",
+          issuer: "CNCF",
+          date: "2024",
+        },
+        { kind: "statement", requirement: PASSPORT, text: "Canadian citizen" },
+      ],
+      saveToProfile: true,
+    });
+    const after = await s.profile.getProfileSnapshot(ownerId);
+    expect(after.revisionId).not.toBe(before.revisionId);
+    expect(after.confirmedAt).not.toBeNull();
+    expect(after.version).toBe(before.version + 1);
+    const saved = after.data.certifications.find((entry) => entry.name === "Certified Kubernetes Administrator");
+    expect(saved).toEqual(expect.objectContaining({ status: "confirmed", issuer: "CNCF", date: "2024" }));
+    expect(
+      after.data.additionalSections.find((section) => section.title === "Additional information")?.items[0].title,
+    ).toBe("Canadian citizen");
+    // Nothing else on the profile changed.
+    expect(after.data.experience).toEqual(before.data.experience);
+    expect(after.data.skills).toEqual(before.data.skills);
+
+    const content = finalized.revision.content;
+    // The resume and the profile hold the same entry.
+    expect(content.certifications.some((entry) => entry.id === saved?.id)).toBe(true);
+    expect(JSON.stringify(content.additionalSections)).toContain("Canadian citizen");
+    expect(finalized.revision.careerProfileRevisionId).toBe(after.revisionId);
+    expect(finalized.revision.changeReport?.notes.join(" ")).toMatch(/also saved to your Master Career Profile/);
+
+    // Next time the profile supports the requirement, so it is no longer asked for.
+    const next = await startReview(true);
+    expect(next.credentialGaps).not.toContain(CERT);
+  });
+
+  it("rejects an incomplete entry and leaves the review open", async () => {
+    const run = await startReview(false);
+    await expect(
+      s.tailoring.finalizeReview(ownerId, run.runId, [], undefined, {
+        items: [{ kind: "certification", requirement: CERT, name: "  " }],
+      }),
+    ).rejects.toThrow(/incomplete or too long/);
+    expect((await s.tailoring.getReviewRun(ownerId, run.runId)).status).toBe("awaiting_review");
+  });
+});

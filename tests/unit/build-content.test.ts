@@ -139,6 +139,22 @@ describe("buildTailoredContent (Stages 4-6)", () => {
     expect(result.content.projects.length).toBe(1);
   });
 
+  it("keeps the original content when the model returns an over-long bullet or summary", () => {
+    const output: TailoringAiOutput = {
+      ...goodOutput,
+      summary: { text: "Frontend engineer. ".repeat(150), sourceIds: [] },
+      experience: [
+        { id: "exp_acme", bullets: [{ text: "Reduced load time. ".repeat(80), sourceIds: ["ach_acme_1"] }] },
+      ],
+    };
+    const result = buildTailoredContent({ profile, analysis, evidence, aiOutput: output });
+    const baseline = buildBaselineContent(profile);
+    expect(result.content.summary.text).toBe(profile.summary.text);
+    expect(result.content.experience[0].bullets.map((bullet) => bullet.text)).toEqual(
+      baseline.experience[0].bullets.map((bullet) => bullet.text),
+    );
+  });
+
   it("baseline content mirrors the profile", () => {
     const baseline = buildBaselineContent(profile);
     expect(baseline.experience[0].bullets.map((bullet) => bullet.sourceIds[0])).toEqual([

@@ -90,6 +90,32 @@ export const tailoringAiOutputSchema = z.object({
       featuredProject: { entryId: "", sourceIds: [], title: "", reason: "" },
       question: { entryId: "", text: "" },
     }),
+  /**
+   * Content for requirements the profile has no evidence for. Only read when
+   * the owner asked for gaps to be covered; kept apart from validated content.
+   */
+  gapFill: z
+    .object({
+      skills: z
+        .array(
+          z.object({
+            requirementId: z.string(),
+            name: z.string(),
+            category: z.string().default(""),
+          }),
+        )
+        .default([]),
+      bullets: z
+        .array(
+          z.object({
+            requirementId: z.string(),
+            entryId: z.string().default(""),
+            text: z.string(),
+          }),
+        )
+        .default([]),
+    })
+    .default({ skills: [], bullets: [] }),
   summary: z.object({
     text: z.string().default(""),
     sourceIds: z.array(z.string()).default([]),
@@ -197,6 +223,47 @@ export const applicationBriefSchema = z.object({
 });
 export type ApplicationBrief = z.infer<typeof applicationBriefSchema>;
 
+/**
+ * Skills and bullets added to cover requirements the confirmed profile has no
+ * evidence for. Nothing here is verified; it is shown to the owner as such.
+ */
+export const suppliedContentSchema = z.object({
+  skills: z
+    .array(
+      z.object({
+        id: z.string(),
+        requirementId: z.string(),
+        requirement: z.string(),
+        name: z.string(),
+        category: z.string(),
+      }),
+    )
+    .default([]),
+  bullets: z
+    .array(
+      z.object({
+        id: z.string(),
+        requirementId: z.string(),
+        requirement: z.string(),
+        entryId: z.string(),
+        entryLabel: z.string(),
+        text: z.string(),
+        /** Sources of the bullet it takes the place of (empty when it is simply added). */
+        replacesSourceIds: z.array(z.string()).default([]),
+        replacedText: z.string().default(""),
+      }),
+    )
+    .default([]),
+  /** Gaps that were left alone (no usable text, or over the limits). */
+  uncovered: z.array(z.string()).default([]),
+  /**
+   * Degrees, certifications, licences and eligibility the job asks for and the
+   * profile does not show. Never supplied; listed for the owner to add if true.
+   */
+  credentials: z.array(z.string()).default([]),
+});
+export type SuppliedContent = z.infer<typeof suppliedContentSchema>;
+
 export const changeReportSchema = z.object({
   summaryChanged: z.boolean().default(false),
   rewordedBullets: z.number().int().nonnegative().default(0),
@@ -212,6 +279,8 @@ export const changeReportSchema = z.object({
   notes: z.array(z.string()).default([]),
   /** Absent on versions generated before the application brief existed. */
   brief: applicationBriefSchema.nullable().default(null),
+  /** Unverified additions on this version, when the owner asked for gaps to be covered. */
+  supplied: suppliedContentSchema.nullable().default(null),
 });
 export type ChangeReport = z.infer<typeof changeReportSchema>;
 
@@ -237,7 +306,16 @@ export type GenerationMetadata = z.infer<typeof generationMetadataSchema>;
 /** Single proposed change shown in Review Mode. */
 export const proposalSchema = z.object({
   id: z.string(),
-  kind: z.enum(["summary", "featured_project", "experience_bullets", "project_bullets", "skills", "section_order"]),
+  kind: z.enum([
+    "summary",
+    "featured_project",
+    "experience_bullets",
+    "project_bullets",
+    "skills",
+    "section_order",
+    "supplied_skills",
+    "supplied_bullet",
+  ]),
   entryId: z.string().optional(),
   label: z.string(),
   original: z.array(z.string()),

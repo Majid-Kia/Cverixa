@@ -12,6 +12,8 @@ ${UNTRUSTED_DATA_RULES}
 - Quote the supporting text verbatim (short excerpt) for every requirement.
 - List concrete technology or skill names in relatedSkills using the posting's own terminology.
 - Keep descriptions concise (one sentence).
+- seniority is a short level label of at most a few words, such as "Junior", "Mid-level", "Senior", "Staff" or "Lead". Leave it empty when the posting does not state a level; do not explain it.
+- jobTitle is the role's title only, without the company or a description.
 - Mark as priority "high" the few requirements a recruiter would screen on first: what the role is hired to do, the kind of product or users, and the must-have skills.
 - applicationRequirements: anything the posting explicitly asks the applicant to submit or do when applying (kind project_note for a note about a project or piece of work, portfolio, cover_letter, application_question, other). Quote the sentence verbatim in supportingText. Leave empty when the posting asks for nothing beyond a resume.
 - logistics: explicitly stated office-attendance, location or relocation requirements (kind office or relocation), quoted verbatim in supportingText.

@@ -111,6 +111,7 @@ export function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { tone: Tone; label: string }> = {
     passed: { tone: "success", label: "Validated" },
     passed_with_rejections: { tone: "warning", label: "Validated with rejections" },
+    with_additions: { tone: "warning", label: "Includes unverified additions" },
     failed: { tone: "danger", label: "Validation failed" },
     user_edited: { tone: "info", label: "User edited" },
     completed: { tone: "success", label: "Completed" },

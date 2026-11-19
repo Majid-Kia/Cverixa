@@ -37,6 +37,8 @@ export default async function ResumePage({
   const isLatest = revision.id === resume.revisions[0].id;
   const report = revision.changeReport;
   const brief = report?.brief ?? null;
+  const supplied = report?.supplied ?? null;
+  const hasAdditions = Boolean(supplied && (supplied.skills.length > 0 || supplied.bullets.length > 0));
 
   return (
     <>
@@ -99,6 +101,60 @@ export default async function ResumePage({
         }}
         templates={templateOptions()}
       />
+
+      {supplied && hasAdditions ? (
+        <Alert tone="warning" className="mt-6" title="Added to cover the job, not from your profile">
+          <p>
+            The job asks for these and your confirmed profile has no evidence for them, so they were added at your
+            request. They are not verified. Check that each one is true before you send this resume; edit or remove them
+            in the editor above.
+          </p>
+          {supplied.skills.length > 0 ? (
+            <p className="mt-2">
+              <span className="font-medium">Skills:</span> {supplied.skills.map((skill) => skill.name).join(", ")}
+            </p>
+          ) : null}
+          {supplied.bullets.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {supplied.bullets.map((bullet) => (
+                <li key={bullet.id}>
+                  &ldquo;{bullet.text}&rdquo; <span className="text-xs">under {bullet.entryLabel}</span>
+                  {bullet.replacedText ? (
+                    <span className="block text-xs">Replaced: &ldquo;{bullet.replacedText}&rdquo;</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Alert>
+      ) : null}
+      {supplied && supplied.credentials.length > 0 ? (
+        <Alert tone="info" className="mt-4" title="Only you can add these">
+          <p>
+            The job asks for these and your profile does not show them. Degrees, certifications, licences and work
+            eligibility are checked by employers, so they are never written for you. If you hold any of them, enter it
+            in Review Mode when you generate, or add it to your{" "}
+            <Link href="/profile" className="font-medium underline">
+              Master Career Profile
+            </Link>{" "}
+            and generate again.
+          </p>
+          <ul className="mt-2 list-disc pl-5">
+            {supplied.credentials.map((text, index) => (
+              <li key={index}>{text}</li>
+            ))}
+          </ul>
+        </Alert>
+      ) : null}
+      {supplied && supplied.uncovered.length > 0 ? (
+        <Alert tone="info" className="mt-4" title="Requirements left uncovered">
+          <ul className="list-disc pl-5">
+            {supplied.uncovered.map((text, index) => (
+              <li key={index}>{text}</li>
+            ))}
+          </ul>
+        </Alert>
+      ) : null}
 
       {brief ? (
         <div className="mt-6 grid gap-4 lg:grid-cols-2">

@@ -344,7 +344,15 @@ export function ResumeEditor({ resumeId, revision, templates }: Props) {
           <h3 className="mb-2 font-semibold">Skills order</h3>
           <ul className="flex flex-wrap gap-2 text-sm">
             {content.skills.map((skill, index) => (
-              <li key={skill.id} className="border-border flex items-center gap-1 rounded-full border px-2 py-1">
+              <li
+                key={skill.id}
+                className={
+                  skill.supplied
+                    ? "flex items-center gap-1 rounded-full border border-amber-400 bg-amber-50 px-2 py-1"
+                    : "border-border flex items-center gap-1 rounded-full border px-2 py-1"
+                }
+                title={skill.supplied ? "Added to cover the job; not from your profile" : undefined}
+              >
                 <span>{skill.name}</span>
                 <button
                   type="button"
@@ -422,7 +430,8 @@ function BulletList({ bullets, onChange }: { bullets: ResumeBullet[]; onChange: 
             onChange={(event) =>
               onChange(bullets.map((b) => (b.id === bullet.id ? { ...b, text: event.target.value } : b)))
             }
-            className="min-h-12 flex-1"
+            className={bullet.kind === "supplied" ? "min-h-12 flex-1 border-amber-400" : "min-h-12 flex-1"}
+            title={bullet.kind === "supplied" ? "Added to cover the job; not from your profile" : undefined}
           />
           <div className="flex flex-col gap-1">
             <Button

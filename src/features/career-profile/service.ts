@@ -3,6 +3,7 @@ import { AppError, NotFoundError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { prisma } from "@/server/database/client";
 import { toJson } from "@/server/database/json";
+import { addOwnerAdditions, hasOwnerAdditions, type OwnerAdditions } from "./additions";
 import { careerProfileDataSchema, emptyProfile, type CareerProfileData } from "./schema";
 
 export interface ProfileSnapshot {
@@ -111,6 +112,22 @@ export async function appendProfileFact(
   const saved = await saveProfileRevision(ownerId, data, { confirmed: true });
   if (!saved.revisionId) return null;
   return { factId, revisionId: saved.revisionId, previousRevisionId: snapshot.revisionId };
+}
+
+/**
+ * Add certifications, education or one-line statements the owner entered
+ * themselves (in Review Mode) to the Master Career Profile as a new confirmed
+ * revision. Returns null when the profile is unconfirmed or nothing was given.
+ */
+export async function appendProfileAdditions(
+  ownerId: string,
+  additions: OwnerAdditions,
+): Promise<{ revisionId: string; previousRevisionId: string } | null> {
+  const snapshot = await getProfileSnapshot(ownerId);
+  if (!snapshot.revisionId || !snapshot.confirmedAt || !hasOwnerAdditions(additions)) return null;
+  const saved = await saveProfileRevision(ownerId, addOwnerAdditions(snapshot.data, additions), { confirmed: true });
+  if (!saved.revisionId) return null;
+  return { revisionId: saved.revisionId, previousRevisionId: snapshot.revisionId };
 }
 
 export async function getProfileRevision(
