@@ -41,6 +41,8 @@ OWNER_EMAIL=you@example.com OWNER_PASSWORD='ChangeMe-12345' pnpm owner:create
 pnpm dev                           # http://localhost:3000
 ```
 
+After pulling changes, run `pnpm db:migrate` again before `pnpm dev`: new migrations are not applied automatically. `pnpm dev` regenerates the Prisma client itself.
+
 Sign in with the owner account, open **AI Settings**, choose a provider and model, then import a resume or build the profile manually.
 
 Generate a session secret with:
