@@ -25,6 +25,7 @@ model User {
   generationRuns    GenerationRun[]
   aiConfigurations  AIProviderConfiguration[]
   importSessions    ImportSession[]
+  coverLetters      CoverLetter[]
 }
 
 /// Database-backed login session referenced by an HttpOnly cookie.
@@ -107,8 +108,34 @@ model JobDescription {
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   resumes        Resume[]
   generationRuns GenerationRun[]
+  coverLetter    CoverLetter?
 
   @@index([ownerId, createdAt])
+}
+
+/// The cover letter for one job description. There is one per job; generating
+/// again replaces it. The body is plain text the owner can edit.
+model CoverLetter {
+  id                      String   @id @default(cuid())
+  ownerId                 String
+  jobDescriptionId        String   @unique
+  careerProfileRevisionId String?
+  body                    String
+  /// What the fact check removed and which criteria the letter does not claim.
+  report                  Json?
+  providerId              String
+  modelId                 String
+  userInstructions        String?
+  /// True once the owner has saved their own edits to the generated text.
+  edited                  Boolean  @default(false)
+  generatedAt             DateTime @default(now())
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  owner          User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  jobDescription JobDescription @relation(fields: [jobDescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, updatedAt])
 }
 
 model Resume {

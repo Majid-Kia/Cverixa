@@ -10,6 +10,7 @@ export const DATA_TAGS = {
   jobAnalysisJson: "job_analysis_json",
   evidenceJson: "evidence_json",
   applicationPlanJson: "application_plan_json",
+  coverLetterContextJson: "cover_letter_context_json",
   userInstructions: "user_instructions",
 } as const;
 

@@ -6,7 +6,7 @@ import { getProvider } from "./registry";
 import { AIProviderError, type StructuredGenerationResult } from "./types";
 
 export interface RunTaskInput<T> {
-  task: "job_analysis" | "resume_tailoring" | "profile_import";
+  task: "job_analysis" | "resume_tailoring" | "profile_import" | "cover_letter";
   providerId: string;
   modelId: string;
   schema: ZodType<T>;

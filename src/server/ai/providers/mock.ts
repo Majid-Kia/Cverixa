@@ -67,6 +67,11 @@ function defaultHandler(request: StructuredGenerationRequest<unknown>): unknown 
       };
     case "profile_import":
       return mockImport(readDataBlock(request.user, DATA_TAGS.resumeText) ?? "");
+    case "cover_letter":
+      return mockCoverLetter(
+        parseJson<MockLetterContext>(readDataBlock(request.user, DATA_TAGS.coverLetterContextJson)),
+        parseJson<CareerProfileData>(readDataBlock(request.user, DATA_TAGS.profileJson)),
+      );
     default:
       throw new Error(`Mock provider has no handler for task "${request.task}".`);
   }
@@ -209,6 +214,53 @@ export function mockGapFill(plan: { gapsToCover?: MockGap[] } | null, profile: C
         text: gap.description.replace(/[.;]$/, "") + ".",
       })),
   };
+}
+
+interface MockLetterContext {
+  jobTitle?: string;
+  company?: string;
+  criteria?: Array<{ status: string; evidence: Array<{ id: string; text: string; source: string }> }>;
+  featuredProject?: { source: string; statements: Array<{ id: string; text: string }> } | null;
+}
+
+const sentence = (text: string) => (/[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
+
+/**
+ * A plain letter built only from the context the application prepared: the
+ * profile summary, the featured project and one statement for each of the
+ * first supported criteria.
+ */
+export function mockCoverLetter(context: MockLetterContext | null, profile: CareerProfileData | null) {
+  const role = context?.jobTitle?.trim() ? `the ${context.jobTitle.trim()} role` : "this role";
+  const company = context?.company?.trim() ? ` at ${context.company.trim()}` : "";
+  const paragraphs: Array<{ text: string; sourceIds: string[] }> = [
+    { text: `I am writing to apply for ${role}${company}. ${profile?.summary?.text ?? ""}`.trim(), sourceIds: [] },
+  ];
+  const used = new Set<string>();
+  const featured = context?.featuredProject?.statements[0];
+  if (featured) {
+    used.add(featured.id);
+    paragraphs.push({
+      text: `The work of mine that is closest to this role: ${sentence(featured.text)}`,
+      sourceIds: [featured.id],
+    });
+  }
+  for (const criterion of context?.criteria ?? []) {
+    if (paragraphs.length >= 3) break;
+    if (criterion.status !== "supported") continue;
+    const evidence = criterion.evidence.find((item) => !used.has(item.id));
+    if (!evidence) continue;
+    used.add(evidence.id);
+    paragraphs.push({
+      text: `From my work as ${evidence.source.replace(/^Project: /, "the author of ")}: ${sentence(evidence.text)}`,
+      sourceIds: [evidence.id],
+    });
+  }
+  paragraphs.push({
+    text: "I would welcome the chance to talk about how this experience fits what you need.",
+    sourceIds: [],
+  });
+  return { greeting: "Dear Hiring Manager,", paragraphs };
 }
 
 export function mockTailoring(profile: CareerProfileData | null, analysis: JobAnalysis | null) {
