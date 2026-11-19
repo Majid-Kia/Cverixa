@@ -34,12 +34,8 @@ async function login(page: Page) {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
-/**
- * Add the posting and generate in Review Mode; ends on the review page. Unless
- * asked, "Cover missing requirements" is switched off so the resume contains
- * only what the profile supports.
- */
-async function startReview(page: Page, posting: ApplicationCase, options: { coverGaps?: boolean } = {}) {
+/** Sign in and save the posting as a job description; ends on the job's page and returns its id. */
+async function addJob(page: Page, posting: ApplicationCase): Promise<string> {
   await login(page);
   await page.goto("/jobs/new");
   await page.getByLabel("Job title (optional)").fill(posting.title);
@@ -48,7 +44,16 @@ async function startReview(page: Page, posting: ApplicationCase, options: { cove
   await page.getByRole("button", { name: "Save job description" }).click();
   // "/jobs/new" itself matches a bare id pattern, so wait for the saved job's own page.
   await expect(page).toHaveURL(/\/jobs\/(?!new$)[a-z0-9]+$/);
-  const jobId = page.url().split("/").pop();
+  return page.url().split("/").pop()!;
+}
+
+/**
+ * Add the posting and generate in Review Mode; ends on the review page. Unless
+ * asked, "Cover missing requirements" is switched off so the resume contains
+ * only what the profile supports.
+ */
+async function startReview(page: Page, posting: ApplicationCase, options: { coverGaps?: boolean } = {}) {
+  const jobId = await addJob(page, posting);
   await page.goto(`/generate?mode=review&job=${jobId}`);
   const coverGaps = page.getByRole("checkbox", { name: /Cover missing requirements/ });
   await expect(coverGaps).toBeChecked();
@@ -248,4 +253,65 @@ test("a credential the job asks for reaches the resume only when the owner enter
   // Saved to the Master Career Profile as well, so the next application starts with it.
   await page.goto("/profile");
   await expect(page.locator('input[value="Certified Kubernetes Administrator"]')).toHaveCount(1);
+});
+
+test("a cover letter is generated from the job page, edited, saved, downloaded and replaced", async ({ page }) => {
+  const jobId = await addJob(page, PARTLY);
+  await page.getByRole("button", { name: "Generate cover letter" }).click();
+  await expect(page).toHaveURL(new RegExp(`/jobs/${jobId}/cover-letter$`), { timeout: 60_000 });
+  await expect(page.getByRole("heading", { name: "Cover letter", level: 1 })).toBeVisible();
+
+  const editor = page.getByLabel("Cover letter text");
+  await expect(editor).toHaveValue(
+    /^Dear Hiring Manager,\n\nI am writing to apply for the Product Engineer role at Partly\./,
+  );
+  await expect(editor).toHaveValue(new RegExp(PORTAL));
+  await expect(editor).toHaveValue(/Sincerely,\nRowan Castell$/);
+  // Checked against the profile: nothing invented, and unsupported criteria are listed instead of claimed.
+  await expect(page.getByText("Nothing was removed.")).toBeVisible();
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Work directly with customers to understand how they do their work" }),
+  ).toBeVisible();
+  await expect(editor).not.toHaveValue(/customers/i);
+
+  // Edit, save, reload.
+  const own = "I can start in January and am happy to relocate.";
+  const generated = await editor.inputValue();
+  await editor.fill(generated.replace("Sincerely,", `${own}\n\nSincerely,`));
+  const status = page.getByRole("status").filter({ hasText: "words" });
+  await expect(status).toContainText("unsaved changes");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(status).toContainText("· saved");
+  await page.reload();
+  await expect(editor).toHaveValue(new RegExp(own));
+  await expect(page.getByText("edited by you")).toBeVisible();
+
+  // The PDF carries the contact header and the saved text.
+  const href = await page.getByRole("link", { name: "Download PDF" }).getAttribute("href");
+  const response = await page.request.get(href!);
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toBe("application/pdf");
+  expect(response.headers()["content-disposition"]).toContain("Rowan_Castell-cover-letter-Partly.pdf");
+  const document = await getDocumentProxy(new Uint8Array(await response.body()));
+  const { text } = await extractText(document, { mergePages: true });
+  const pdf = (text as string).replace(/\s+/g, " ");
+  expect(document.numPages).toBe(1);
+  expect(pdf).toContain("Rowan Castell");
+  expect(pdf).toContain("Dear Hiring Manager,");
+  expect(pdf).toContain(PORTAL);
+  expect(pdf).toContain(own);
+
+  // The job page now opens the letter instead of writing a new one.
+  await page.goto(`/jobs/${jobId}`);
+  await page.getByRole("link", { name: "Open cover letter" }).click();
+  await expect(page).toHaveURL(new RegExp(`/jobs/${jobId}/cover-letter$`));
+
+  // Generating again replaces the letter, after saying that the edits will be lost.
+  await expect(page.getByText("You have edited this letter. Generating again replaces it")).toBeVisible();
+  await page.getByLabel("Instructions (optional)").fill("Keep it short.");
+  await page.getByRole("button", { name: "Generate again" }).click();
+  await expect(page.getByText("Cover letter generated.")).toBeVisible({ timeout: 60_000 });
+  await expect(editor).not.toHaveValue(new RegExp(own));
+  await expect(editor).toHaveValue(/^Dear Hiring Manager,/);
+  await expect(page.getByText("edited by you")).toHaveCount(0);
 });

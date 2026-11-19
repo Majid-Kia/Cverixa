@@ -4,8 +4,11 @@ import { notFound } from "next/navigation";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Alert, Badge, Card, CardTitle, PageHeader } from "@/components/ui/card";
 import { getAISettings } from "@/features/ai-settings/service";
+import { SubmitButton } from "@/components/submit-button";
 import { confirmedFactsOnly } from "@/features/career-profile/schema";
 import { getProfileSnapshot } from "@/features/career-profile/service";
+import { startCoverLetterAction } from "@/features/cover-letter/actions";
+import { getCoverLetterForJob } from "@/features/cover-letter/service";
 import { deleteJobAction } from "@/features/job-analysis/actions";
 import { getJobDescription } from "@/features/job-analysis/service";
 import { matchEvidence } from "@/features/resume-tailoring/evidence";
@@ -35,7 +38,13 @@ export default async function JobDetailPage({
     if (error instanceof NotFoundError) notFound();
     throw error;
   }
-  const [settings, profile] = await Promise.all([getAISettings(user.id), getProfileSnapshot(user.id)]);
+  const [settings, profile, coverLetter] = await Promise.all([
+    getAISettings(user.id),
+    getProfileSnapshot(user.id),
+    getCoverLetterForJob(user.id, job.id),
+  ]);
+  // Without a confirmed profile or a provider the letter page explains what is missing.
+  const canWriteLetter = Boolean(profile.confirmedAt && settings.defaultProviderId && settings.defaultModelId);
   const evidence =
     job.analysis && profile.confirmedAt ? matchEvidence(confirmedFactsOnly(profile.data), job.analysis) : null;
 
@@ -47,6 +56,18 @@ export default async function JobDetailPage({
         actions={
           <>
             <LinkButton href={`/generate?job=${job.id}`}>Generate resume</LinkButton>
+            {coverLetter || !canWriteLetter ? (
+              <LinkButton href={`/jobs/${job.id}/cover-letter`} variant="secondary">
+                {coverLetter ? "Open cover letter" : "Generate cover letter"}
+              </LinkButton>
+            ) : (
+              <form action={startCoverLetterAction}>
+                <input type="hidden" name="jobDescriptionId" value={job.id} />
+                <SubmitButton variant="secondary" pendingLabel="Writing cover letter...">
+                  Generate cover letter
+                </SubmitButton>
+              </form>
+            )}
             <form action={deleteJobAction}>
               <input type="hidden" name="id" value={job.id} />
               <Button type="submit" variant="danger">

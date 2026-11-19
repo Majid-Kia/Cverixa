@@ -88,7 +88,7 @@ export function buildResumeTailoringUserPrompt(input: {
 }
 
 /** Strip fields the model does not need to keep prompts compact. */
-function compactProfile(profile: CareerProfileData) {
+export function compactProfile(profile: CareerProfileData) {
   return {
     personal: { fullName: profile.personal.fullName, headline: profile.personal.headline },
     summary: profile.summary,

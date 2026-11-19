@@ -16,6 +16,7 @@ type Services = {
   tailoring: typeof import("@/features/resume-tailoring/service");
   history: typeof import("@/features/resume-history/service");
   settings: typeof import("@/features/ai-settings/service");
+  letters: typeof import("@/features/cover-letter/service");
   prisma: (typeof import("@/server/database/client"))["prisma"];
 };
 let s: Services;
@@ -36,6 +37,7 @@ beforeAll(async () => {
     tailoring: await import("@/features/resume-tailoring/service"),
     history: await import("@/features/resume-history/service"),
     settings: await import("@/features/ai-settings/service"),
+    letters: await import("@/features/cover-letter/service"),
     prisma: (await import("@/server/database/client")).prisma,
   };
   await s.prisma.user.deleteMany();
@@ -624,5 +626,101 @@ What you need
       }),
     ).rejects.toThrow(/incomplete or too long/);
     expect((await s.tailoring.getReviewRun(ownerId, run.runId)).status).toBe("awaiting_review");
+  });
+});
+
+describe("cover letters", () => {
+  let jobId: string;
+  let letterId: string;
+
+  it("writes one letter per job from the confirmed profile and leaves the profile alone", async () => {
+    const job = await s.jobs.createJobDescription(ownerId, {
+      originalText: JOB_TEXT,
+      title: "Senior Frontend Engineer",
+      company: "Hooli",
+      location: "",
+      sourceUrl: "",
+      notes: "",
+    });
+    jobId = job.id;
+    expect(await s.letters.getCoverLetterForJob(ownerId, jobId)).toBeNull();
+    const before = await s.profile.getProfileSnapshot(ownerId);
+
+    const letter = await s.letters.generateCoverLetter(ownerId, { jobDescriptionId: jobId });
+    letterId = letter.id;
+    expect(letter.body).toMatch(
+      /^Dear Hiring Manager,\n\nI am writing to apply for the Senior Frontend Engineer role at Hooli\./,
+    );
+    expect(letter.body.endsWith(`Sincerely,\n${before.data.personal.fullName}`)).toBe(true);
+    expect(letter).toEqual(expect.objectContaining({ providerId: "mock", edited: false, userInstructions: "" }));
+    expect(letter.report.removed).toEqual([]);
+    // The job is analysed on the way, as it is for a resume.
+    expect((await s.jobs.getJobDescription(ownerId, jobId)).analysis).not.toBeNull();
+    expect((await s.letters.getCoverLetterForJob(ownerId, jobId))?.id).toBe(letter.id);
+    const after = await s.profile.getProfileSnapshot(ownerId);
+    expect(after.revisionId).toBe(before.revisionId);
+  });
+
+  it("saves the owner's edits as written", async () => {
+    const saved = await s.letters.saveCoverLetter(
+      ownerId,
+      letterId,
+      "Dear team,\r\n\r\nMy own words & <b>nothing</b> else.\n",
+    );
+    expect(saved.body).toBe("Dear team,\n\nMy own words & <b>nothing</b> else.");
+    expect(saved.edited).toBe(true);
+    expect((await s.letters.getCoverLetter(ownerId, letterId)).body).toBe(saved.body);
+    await expect(s.letters.saveCoverLetter(ownerId, letterId, "   ")).rejects.toThrow(/empty/);
+    await expect(s.letters.saveCoverLetter(ownerId, letterId, "x".repeat(8001))).rejects.toThrow(/too long/);
+    expect((await s.letters.getCoverLetter(ownerId, letterId)).body).toBe(saved.body);
+  });
+
+  it("keeps the current letter when a new one fails the fact check", async () => {
+    const { getProvider } = await import("@/server/ai/registry");
+    using generateStructured = vi.spyOn(getProvider("mock"), "generateStructured").mockResolvedValueOnce({
+      data: {
+        greeting: "Dear Hiring Manager,",
+        paragraphs: [
+          { text: "I have 15 years of Kubernetes experience.", sourceIds: [] },
+          { text: "I interviewed customers weekly and shipped an AI model.", sourceIds: [] },
+        ],
+      },
+      modelId: "mock-deterministic-v1",
+      durationMs: 1,
+    } as never);
+    await expect(s.letters.generateCoverLetter(ownerId, { jobDescriptionId: jobId })).rejects.toThrow(
+      /did not pass the fact check/,
+    );
+    expect(generateStructured).toHaveBeenCalledTimes(1);
+    const kept = await s.letters.getCoverLetter(ownerId, letterId);
+    expect(kept.body).toMatch(/^Dear team,/);
+    expect(kept.edited).toBe(true);
+  });
+
+  it("replaces the letter, and the edits, when generated again", async () => {
+    const again = await s.letters.generateCoverLetter(ownerId, {
+      jobDescriptionId: jobId,
+      userInstructions: "  Keep it short.  ",
+    });
+    expect(again.id).toBe(letterId);
+    expect(again.body).toMatch(/^Dear Hiring Manager,/);
+    expect(again).toEqual(expect.objectContaining({ edited: false, userInstructions: "Keep it short." }));
+    expect(await s.prisma.coverLetter.count({ where: { jobDescriptionId: jobId } })).toBe(1);
+  });
+
+  it("belongs to its owner and is deleted with the job", async () => {
+    const other = await s.prisma.user.upsert({
+      where: { email: "other@example.com" },
+      update: {},
+      create: { email: "other@example.com", passwordHash: "x" },
+    });
+    expect(await s.letters.getCoverLetterForJob(other.id, jobId)).toBeNull();
+    await expect(s.letters.getCoverLetter(other.id, letterId)).rejects.toThrow(/not found/i);
+    await expect(s.letters.saveCoverLetter(other.id, letterId, "Mine now.")).rejects.toThrow(/not found/i);
+    await expect(s.letters.generateCoverLetter(other.id, { jobDescriptionId: jobId })).rejects.toThrow();
+    expect((await s.letters.getCoverLetter(ownerId, letterId)).body).toMatch(/^Dear Hiring Manager,/);
+
+    await s.jobs.deleteJobDescription(ownerId, jobId);
+    expect(await s.prisma.coverLetter.count({ where: { id: letterId } })).toBe(0);
   });
 });
