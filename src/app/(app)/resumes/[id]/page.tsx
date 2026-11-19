@@ -39,6 +39,10 @@ export default async function ResumePage({
   const brief = report?.brief ?? null;
   const supplied = report?.supplied ?? null;
   const hasAdditions = Boolean(supplied && (supplied.skills.length > 0 || supplied.bullets.length > 0));
+  const covered = {
+    ids: [...(supplied?.skills ?? []), ...(supplied?.bullets ?? [])].map((item) => item.requirementId),
+    label: "Covered by an addition",
+  };
 
   return (
     <>
@@ -159,7 +163,7 @@ export default async function ResumePage({
       {brief ? (
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <div className="space-y-4">
-            <ScreeningCriteriaCard brief={brief} />
+            <ScreeningCriteriaCard brief={brief} covered={covered} />
             {brief.question ? (
               <Card>
                 <CardTitle>Open question</CardTitle>

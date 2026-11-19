@@ -24,6 +24,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ runId: 
   const brief = run.brief;
   const screened = new Set(brief?.criteria.map((criterion) => criterion.requirementId) ?? []);
   // Requirements outside the screening criteria that still lack full evidence.
+  const covered = { ids: run.coveredRequirementIds, label: "Addition proposed" };
   const missing = run.evidence.matches.filter(
     (match) => match.status !== "supported" && !screened.has(match.requirementId),
   );
@@ -84,7 +85,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ runId: 
           closed={run.status !== "awaiting_review"}
         />
         <div className="space-y-4">
-          {brief ? <ScreeningCriteriaCard brief={brief} /> : null}
+          {brief ? <ScreeningCriteriaCard brief={brief} covered={covered} /> : null}
           {brief ? <ApplicationChecklistCard brief={brief} /> : null}
           <Card>
             <CardTitle>{brief ? "Other requirements without full evidence" : "Missing requirements"}</CardTitle>
@@ -101,6 +102,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ runId: 
                     <Badge tone={match.status === "not_evidenced" ? "danger" : "warning"}>
                       {match.status.replace("_", " ")}
                     </Badge>{" "}
+                    {covered.ids.includes(match.requirementId) ? <Badge tone="info">{covered.label}</Badge> : null}{" "}
                     {match.classification === "mandatory" ? <span className="font-medium">[Mandatory] </span> : null}
                     {match.description}
                   </li>

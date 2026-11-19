@@ -15,12 +15,19 @@ const REQUIREMENT_KIND: Record<ApplicationBrief["applicationRequirements"][numbe
   other: "Other",
 };
 
-function Criterion({ criterion }: { criterion: BriefCriterion }) {
+/** Requirements that an addition (not from the profile) covers, and how to say so. */
+export interface CoveredRequirements {
+  ids: string[];
+  label: string;
+}
+
+function Criterion({ criterion, coveredLabel }: { criterion: BriefCriterion; coveredLabel: string | null }) {
   const status = STATUS[criterion.status];
   return (
     <li>
       <p>
         <Badge tone={status.tone}>{status.label}</Badge>{" "}
+        {coveredLabel && criterion.status !== "supported" ? <Badge tone="info">{coveredLabel}</Badge> : null}{" "}
         {criterion.classification === "mandatory" ? <span className="font-medium">[Mandatory] </span> : null}
         {criterion.description}
       </p>
@@ -44,7 +51,7 @@ function Criterion({ criterion }: { criterion: BriefCriterion }) {
  * Screening criteria with the evidence found for each across the whole
  * profile, and what is still not evidenced. Worked out before drafting.
  */
-export function ScreeningCriteriaCard({ brief }: { brief: ApplicationBrief }) {
+export function ScreeningCriteriaCard({ brief, covered }: { brief: ApplicationBrief; covered?: CoveredRequirements }) {
   const featured = brief.featured;
   return (
     <Card>
@@ -59,7 +66,11 @@ export function ScreeningCriteriaCard({ brief }: { brief: ApplicationBrief }) {
       ) : (
         <ul className="space-y-3 text-sm">
           {brief.criteria.map((criterion) => (
-            <Criterion key={criterion.requirementId} criterion={criterion} />
+            <Criterion
+              key={criterion.requirementId}
+              criterion={criterion}
+              coveredLabel={covered?.ids.includes(criterion.requirementId) ? covered.label : null}
+            />
           ))}
         </ul>
       )}
