@@ -90,8 +90,20 @@ export interface LinkOnlySource extends SourceBase {
   mode: "link_only";
   /** Why listings from this source are not ingested automatically. */
   limitation: string;
-  /** A search on the source's own site for one keyword and country; null when the country is not covered. */
-  searchUrl(keyword: string, country: { code: string; name: string } | null): string | null;
+  /**
+   * Whether the site's search matches quoted phrases joined with OR against the posting text, so a
+   * search can be narrowed to postings that mention sponsorship or relocation.
+   */
+  sponsorshipSearch: boolean;
+  /**
+   * A search on the source's own site for one keyword and country; null when the country is not
+   * covered. With `sponsorship`, sites that support it also require a sponsorship or relocation phrase.
+   */
+  searchUrl(
+    keyword: string,
+    country: { code: string; name: string } | null,
+    options?: { sponsorship?: boolean },
+  ): string | null;
 }
 
 export type JobSource = AutomaticSource | LinkOnlySource;

@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { buttonClasses } from "@/components/ui/button";
 import { Badge } from "@/components/ui/card";
-import { Field, Select } from "@/components/ui/fields";
+import { Checkbox, Field, Select } from "@/components/ui/fields";
 import {
   euresSource,
   indeedSource,
   linkedinSource,
+  SPONSORSHIP_SEARCH_PHRASES,
   welcomeToTheJungleSource,
 } from "@/features/job-scanner/sources/external-links";
 
@@ -26,6 +27,7 @@ export function SearchShortcuts({
 }) {
   const [keyword, setKeyword] = useState(keywords[0] ?? "");
   const [code, setCode] = useState(countries[0]?.code ?? "");
+  const [sponsorship, setSponsorship] = useState(true);
   const country = countries.find((item) => item.code === code) ?? null;
   return (
     <div className="space-y-3">
@@ -50,9 +52,21 @@ export function SearchShortcuts({
           </Select>
         </Field>
       </div>
+      <label className="border-border flex cursor-pointer gap-3 rounded-md border p-3">
+        <Checkbox checked={sponsorship} onChange={(event) => setSponsorship(event.target.checked)} className="mt-0.5" />
+        <span>
+          <span className="block text-sm font-medium">Only postings that mention visa sponsorship or relocation</span>
+          <span className="text-muted block text-sm">
+            These sites have no sponsorship filter. This adds the phrases{" "}
+            {SPONSORSHIP_SEARCH_PHRASES.map((phrase) => `"${phrase}"`).join(", ")} to the search, so only postings whose
+            text contains one of them are listed. That includes postings saying sponsorship is not offered: import a
+            posting to see what it actually states.
+          </span>
+        </span>
+      </label>
       <ul className="space-y-2">
         {SOURCES.map((source) => {
-          const url = keyword ? source.searchUrl(keyword, country) : null;
+          const url = keyword ? source.searchUrl(keyword, country, { sponsorship }) : null;
           return (
             <li
               key={source.id}
@@ -64,6 +78,11 @@ export function SearchShortcuts({
                   <Badge tone="warning">Linked externally, not scanned</Badge>
                 </p>
                 <p className="text-muted mt-1 text-xs">{source.limitation}</p>
+                {sponsorship && !source.sponsorshipSearch ? (
+                  <p className="text-muted mt-1 text-xs">
+                    The sponsorship phrases are not added here; this site&apos;s search does not support them.
+                  </p>
+                ) : null}
               </div>
               {url ? (
                 <a

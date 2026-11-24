@@ -40,6 +40,18 @@ const INDEED_HOSTS: Record<string, string> = {
   US: "www.indeed.com",
 };
 
+/**
+ * Phrases a posting uses when it talks about sponsorship or relocation. These sites have no
+ * sponsorship filter; requiring one of these phrases in the posting text is the closest thing.
+ * It finds postings that mention the subject, including ones that say sponsorship is not offered.
+ */
+export const SPONSORSHIP_SEARCH_PHRASES = ["visa sponsorship", "visa support", "work permit", "relocation package"];
+
+/** `Frontend Engineer ("visa sponsorship" OR "work permit")` */
+export function withSponsorshipPhrases(keyword: string): string {
+  return `${keyword} (${SPONSORSHIP_SEARCH_PHRASES.map((phrase) => `"${phrase}"`).join(" OR ")})`;
+}
+
 export const linkedinSource: LinkOnlySource = {
   id: "linkedin",
   displayName: "LinkedIn Jobs",
@@ -48,9 +60,10 @@ export const linkedinSource: LinkOnlySource = {
   description: "Opens a LinkedIn job search for one of your titles and countries in your browser.",
   limitation:
     "LinkedIn has no API for discovering jobs: its job APIs are for approved partners to post jobs, and its terms prohibit automated collection of listings. Cverixa therefore does not read LinkedIn. Use the search link, then import a posting you want to track by pasting its link and text.",
-  searchUrl(keyword, country) {
+  sponsorshipSearch: true,
+  searchUrl(keyword, country, options) {
     const url = new URL("https://www.linkedin.com/jobs/search/");
-    url.searchParams.set("keywords", keyword);
+    url.searchParams.set("keywords", options?.sponsorship ? withSponsorshipPhrases(keyword) : keyword);
     if (country) url.searchParams.set("location", country.name);
     return url.toString();
   },
@@ -64,10 +77,11 @@ export const indeedSource: LinkOnlySource = {
   description: "Opens an Indeed search for one of your titles on the country's Indeed site.",
   limitation:
     "Indeed no longer offers a public job search API and does not permit automated collection of its listings.",
-  searchUrl(keyword, country) {
+  sponsorshipSearch: true,
+  searchUrl(keyword, country, options) {
     const host = country ? INDEED_HOSTS[country.code] : "www.indeed.com";
     const url = new URL(`https://${host ?? "www.indeed.com"}/jobs`);
-    url.searchParams.set("q", keyword);
+    url.searchParams.set("q", options?.sponsorship ? withSponsorshipPhrases(keyword) : keyword);
     if (country && !host) url.searchParams.set("l", country.name);
     return url.toString();
   },
@@ -81,6 +95,7 @@ export const euresSource: LinkOnlySource = {
   description: "Opens a search on the European Job Mobility Portal (EU, EEA and Switzerland).",
   limitation:
     "EURES has no public API for third-party applications; its vacancy data is exchanged between member employment services.",
+  sponsorshipSearch: false,
   searchUrl(keyword, country) {
     if (country && !EURES_COUNTRIES.has(country.code)) return null;
     const url = new URL("https://europa.eu/eures/portal/jv-se/search");
@@ -101,6 +116,7 @@ export const welcomeToTheJungleSource: LinkOnlySource = {
   homepage: "https://www.welcometothejungle.com",
   description: "Opens a Welcome to the Jungle search for one of your titles and countries.",
   limitation: "Welcome to the Jungle does not publish an API for reading its listings.",
+  sponsorshipSearch: false,
   searchUrl(keyword, country) {
     const url = new URL("https://www.welcometothejungle.com/en/jobs");
     url.searchParams.set("query", keyword);

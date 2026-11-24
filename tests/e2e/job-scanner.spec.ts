@@ -280,7 +280,16 @@ test("a LinkedIn posting can be imported and is labelled as imported, not scanne
   await login(page);
   await page.goto("/scanner");
   const shortcuts = page.locator("section", { hasText: "Search sites that cannot be scanned" });
-  await expect(shortcuts.getByRole("link", { name: "Open LinkedIn Jobs search" })).toHaveAttribute(
+  // LinkedIn has no sponsorship filter, so the search asks for postings that mention it.
+  const linkedIn = shortcuts.getByRole("link", { name: "Open LinkedIn Jobs search" });
+  const narrowed = shortcuts.getByLabel("Only postings that mention visa sponsorship or relocation");
+  await expect(narrowed).toBeChecked();
+  await expect(linkedIn).toHaveAttribute(
+    "href",
+    /^https:\/\/www\.linkedin\.com\/jobs\/search\/\?keywords=Frontend\+Engineer\+%28%22visa\+sponsorship%22\+OR\+.*%29&location=Germany$/,
+  );
+  await narrowed.uncheck();
+  await expect(linkedIn).toHaveAttribute(
     "href",
     "https://www.linkedin.com/jobs/search/?keywords=Frontend+Engineer&location=Germany",
   );
