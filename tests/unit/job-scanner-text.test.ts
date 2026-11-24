@@ -201,6 +201,45 @@ describe("processing a posting", () => {
   });
 });
 
+describe("one-line fields from a source", () => {
+  it("removes markup, control characters and bytes the database cannot store", () => {
+    const result = processSourceJob(
+      job({
+        title: "Senior <b>Frontend</b>\u0000 Engineer\n&amp; Lead",
+        company: "Acme\tGmbH\u0007",
+        location: " Berlin,\r\nGermany ",
+      }),
+      { id: "test", label: "Test" },
+      filters,
+    );
+    expect(result.kind).toBe("keep");
+    if (result.kind !== "keep") return;
+    expect(result.candidate.title).toBe("Senior Frontend Engineer & Lead");
+    expect(result.candidate.company).toBe("Acme GmbH");
+    expect(result.candidate.location).toBe("Berlin, Germany");
+    expect(JSON.stringify(result.candidate)).not.toContain("\\u0000");
+  });
+});
+
+describe("offline demo source", () => {
+  it("is not registered unless it is switched on, and contacts nothing", async () => {
+    const { AUTOMATIC_SOURCES } = await import("@/features/job-scanner/sources/registry");
+    const { demoSource, isDemoSourceEnabled } = await import("@/features/job-scanner/sources/demo");
+    expect(isDemoSourceEnabled()).toBe(false);
+    expect(AUTOMATIC_SOURCES.map((source) => source.id)).not.toContain("demo");
+    expect(demoSource.allowedHosts).toEqual([]);
+    const http = {
+      requestCount: 0,
+      getJson: async () => {
+        throw new Error("the demo source must not make requests");
+      },
+    };
+    const { jobs } = await demoSource.fetchJobs({ keywords: [], countries: [], workArrangements: [] }, {}, { http });
+    expect(jobs.length).toBeGreaterThanOrEqual(4);
+    expect(jobs.every((item) => item.url.startsWith("https://jobs.example.com/"))).toBe(true);
+  });
+});
+
 describe("double-encoded descriptions", () => {
   it("removes markup that only appears after entities are decoded", () => {
     const text = htmlToText(

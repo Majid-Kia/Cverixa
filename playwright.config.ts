@@ -8,6 +8,7 @@ export const E2E_PORT = Number(process.env.E2E_PORT ?? 3100);
 export const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;
 export const E2E_OWNER_EMAIL = "owner@example.com";
 export const E2E_OWNER_PASSWORD = "CorrectHorse42Battery";
+export const E2E_CRON_SECRET = "e2e-cron-secret-0123456789abcdef";
 export const E2E_DATABASE_URL =
   process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54329/cverixa_test?schema=public";
 
@@ -33,6 +34,13 @@ export default defineConfig({
       dependencies: ["chromium"],
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      // Runs last: uses the owner, default provider and confirmed profile left by the earlier projects.
+      name: "job-scanner",
+      testMatch: /job-scanner.spec.ts$/,
+      dependencies: ["application-reviews"],
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
   webServer: {
     command: `pnpm exec next start -p ${E2E_PORT}`,
@@ -45,6 +53,10 @@ export default defineConfig({
       SESSION_SECRET: "e2e-session-secret-at-least-32-characters-long",
       APP_URL: E2E_BASE_URL,
       AI_ENABLE_MOCK_PROVIDER: "true",
+      // Job Scanner: an offline source with invented postings, so no test contacts a job site.
+      JOB_SCAN_ENABLE_DEMO_SOURCE: "true",
+      JOB_SCAN_INTERNAL_SCHEDULER: "false",
+      CRON_SECRET: E2E_CRON_SECRET,
       OLLAMA_BASE_URL: "http://127.0.0.1:11434",
     },
   },

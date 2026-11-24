@@ -1,5 +1,6 @@
 import { arbeitnowSource } from "./arbeitnow";
 import { ashbySource } from "./ashby";
+import { demoSource, isDemoSourceEnabled } from "./demo";
 import { euresSource, IMPORT_HOSTS, indeedSource, linkedinSource, welcomeToTheJungleSource } from "./external-links";
 import { greenhouseSource } from "./greenhouse";
 import { leverSource } from "./lever";
@@ -17,6 +18,8 @@ export const AUTOMATIC_SOURCES: AutomaticSource[] = [
   ashbySource,
   leverSource,
   remotiveSource,
+  // Invented postings for demos and browser tests; present only when explicitly switched on.
+  ...(isDemoSourceEnabled() ? [demoSource] : []),
 ] as AutomaticSource[];
 
 export const LINK_ONLY_SOURCES: LinkOnlySource[] = [
