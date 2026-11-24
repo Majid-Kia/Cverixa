@@ -33,7 +33,7 @@ The preconfigured company boards are companies whose boards existed on that date
 
 For these sites Cverixa does two things, and says so in the interface ("Linked externally, not scanned"):
 
-1. **Search shortcuts** on the Job Scanner page open the site's own search for one of your titles and countries in your browser. Nothing is fetched by the server.
+1. **Search shortcuts** on the Job Scanner page open the site's own search for one of your titles and countries in your browser. Nothing is fetched by the server. None of these sites has a visa-sponsorship filter, so by default the LinkedIn and Indeed shortcuts add the phrases "visa sponsorship", "visa support", "work permit" and "relocation package" to the search (joined with OR), which limits the results to postings whose text contains one of them. That is a text match, not a classification: it also returns postings that say sponsorship is not offered, and it misses postings that offer it in other words. Importing a posting shows what it actually states.
 2. **Import a posting** (`/scanner/import`): paste the link and the text of a posting you found. The link is stored but never opened by the server. The posting is then classified, scored, tracked and tailored like a scanned listing, and is marked "Imported by you". A LinkedIn link keeps its LinkedIn job id, so importing it twice does not duplicate it.
 
 Glassdoor and Wellfound have no public API either; postings from them can be imported the same way.

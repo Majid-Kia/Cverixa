@@ -60,6 +60,26 @@ describe("source registry", () => {
     );
   });
 
+  it("can narrow LinkedIn and Indeed searches to postings that mention sponsorship or relocation", () => {
+    const germany = { code: "DE", name: "Germany" };
+    const linkedin = new URL(linkedinSource.searchUrl("Frontend Engineer", germany, { sponsorship: true })!);
+    expect(linkedin.searchParams.get("keywords")).toBe(
+      'Frontend Engineer ("visa sponsorship" OR "visa support" OR "work permit" OR "relocation package")',
+    );
+    expect(linkedin.searchParams.get("location")).toBe("Germany");
+    const indeed = new URL(indeedSource.searchUrl("React Developer", germany, { sponsorship: true })!);
+    expect(indeed.hostname).toBe("de.indeed.com");
+    expect(indeed.searchParams.get("q")).toContain('"visa sponsorship" OR');
+    // Sites whose search does not support phrases are searched as before, and say so.
+    expect(euresSource.sponsorshipSearch).toBe(false);
+    expect(euresSource.searchUrl("React Developer", germany, { sponsorship: true })).toBe(
+      euresSource.searchUrl("React Developer", germany),
+    );
+    expect(linkedinSource.searchUrl("Frontend Engineer", germany, { sponsorship: false })).toBe(
+      "https://www.linkedin.com/jobs/search/?keywords=Frontend+Engineer&location=Germany",
+    );
+  });
+
   it("builds search links for the other link-only sites", () => {
     expect(indeedSource.searchUrl("React Developer", { code: "NL", name: "Netherlands" })).toBe(
       "https://nl.indeed.com/jobs?q=React+Developer",
