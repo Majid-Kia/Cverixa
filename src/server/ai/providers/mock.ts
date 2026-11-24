@@ -1,4 +1,5 @@
 import { findTechKeywords, containsTerm } from "@/features/job-analysis/keywords";
+import { classifyVisaSupport } from "@/features/job-scanner/sponsorship";
 import { conceptsIn } from "@/features/resume-tailoring/evidence";
 import type { CareerProfileData } from "@/features/career-profile/schema";
 import type { JobAnalysis } from "@/features/job-analysis/schema";
@@ -54,6 +55,8 @@ function defaultHandler(request: StructuredGenerationRequest<unknown>): unknown 
   switch (request.task) {
     case "job_analysis":
       return mockJobAnalysis(readDataBlock(request.user, DATA_TAGS.jobDescription) ?? "");
+    case "job_screening":
+      return mockJobScreening(readDataBlock(request.user, DATA_TAGS.jobDescription) ?? "");
     case "resume_tailoring":
       return {
         ...mockTailoring(
@@ -142,6 +145,32 @@ export function mockJobAnalysis(text: string) {
         : "Mid-level",
     summary: `Mock analysis derived from ${keywords.length} recognised technical terms.`,
     requirements,
+  };
+}
+
+/**
+ * Job Scanner screening: the mock job analysis plus the sponsorship,
+ * relocation and work-authorisation statements found by the same rules the
+ * application uses, quoted from the posting.
+ */
+export function mockJobScreening(text: string) {
+  const visa = classifyVisaSupport(text, { sourceUrl: "" });
+  const years = text.match(/\b(\d{1,2})\s*\+?\s*years?\b/i);
+  return {
+    ...mockJobAnalysis(text),
+    sponsorship: {
+      status: visa.sponsorship.status,
+      quotes: visa.sponsorship.evidence.filter((item) => item.basis === "posting_text").map((item) => item.text),
+    },
+    relocation: {
+      offered: visa.relocation.status === "offered",
+      quotes: visa.relocation.evidence.filter((item) => item.reading === "offers").map((item) => item.text),
+    },
+    workAuthorization: {
+      required: visa.workAuthorization.required,
+      quotes: visa.workAuthorization.evidence.map((item) => item.text),
+    },
+    yearsOfExperience: years ? Number(years[1]) : null,
   };
 }
 

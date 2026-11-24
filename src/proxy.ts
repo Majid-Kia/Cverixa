@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 const SESSION_COOKIE = "cverixa_session";
-const PUBLIC_PATHS = ["/login", "/api/health"];
+// /api/cron has no session: it is called by a scheduler and checks its own bearer token.
+const PUBLIC_PATHS = ["/login", "/api/health", "/api/cron"];
 
 /**
  * Edge-level route protection: requests without a session cookie are sent to
