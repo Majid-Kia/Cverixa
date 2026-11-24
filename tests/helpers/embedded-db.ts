@@ -58,6 +58,8 @@ export async function startTestDatabase(options: TestDatabaseOptions = {}): Prom
     user: "postgres",
     password: "postgres",
     persistent: false,
+    // Match production: without this, initdb takes the host's code page (WIN1252 on Windows).
+    initdbFlags: ["--encoding=UTF8", "--locale=C"],
     autoRehydrateSymlinks: true,
     onLog: () => undefined,
     onError: () => undefined,

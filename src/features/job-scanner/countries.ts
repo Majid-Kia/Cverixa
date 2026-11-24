@@ -434,7 +434,7 @@ const REGIONS: Array<{ id: string; pattern: RegExp; countries: string[] | "*" }>
 export function normalizePlace(value: string): string {
   return value
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/ß/g, "ss")
     .replace(/ø/gi, "o")
     .replace(/ł/gi, "l")

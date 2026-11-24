@@ -452,7 +452,7 @@ export default async function ScannerPage({ searchParams }: { searchParams: Prom
           you want to track, score and tailor a resume for.
         </p>
         <SearchShortcuts
-          keywords={preferences.keywords}
+          keywords={preferences.keywords.filter((keyword) => !keyword.startsWith("-"))}
           countries={preferences.countries.map((code) => ({ code, name: countryName(code) }))}
         />
       </Card>

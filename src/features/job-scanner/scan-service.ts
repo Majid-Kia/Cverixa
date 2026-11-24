@@ -256,8 +256,20 @@ export async function executeScan(scanId: string, deps: ScanDependencies = {}): 
     const needsAnalysis: string[] = [];
     let newCount = 0;
     let duplicateCount = inScanDuplicates;
+    let saveFailures = 0;
     for (const candidate of unique) {
-      const saved = await saveCandidate(ownerId, scanId, candidate);
+      let saved;
+      try {
+        saved = await saveCandidate(ownerId, scanId, candidate);
+      } catch (error) {
+        // One listing that cannot be stored must not cost the scan every other listing.
+        saveFailures += 1;
+        logger.warn("job_scanner.listing.save_failed", {
+          source: candidate.sourceId,
+          reason: error instanceof Error ? error.name : "unknown",
+        });
+        continue;
+      }
       const counts = perSource.get(candidate.sourceId)!;
       if (saved.outcome === "new") {
         newCount += 1;
@@ -293,7 +305,7 @@ export async function executeScan(scanId: string, deps: ScanDependencies = {}): 
     const failedSources = outcomes.filter((outcome) => outcome.status === "failed");
     const ranSources = outcomes.filter((outcome) => outcome.status !== "skipped");
     await report("analyzing", {
-      discoveredCount: unique.length,
+      discoveredCount: unique.length - saveFailures,
       newCount,
       duplicateCount,
       filteredCount: filtered,
@@ -301,6 +313,11 @@ export async function executeScan(scanId: string, deps: ScanDependencies = {}): 
 
     // AI matching. Discovery above is already saved and stays whatever happens here.
     const messages: string[] = [];
+    if (saveFailures > 0) {
+      messages.push(
+        `${saveFailures} listing${saveFailures === 1 ? "" : "s"} could not be saved and ${saveFailures === 1 ? "was" : "were"} left out.`,
+      );
+    }
     let analyzedCount = 0;
     let aiProblem = false;
     let context: MatchContext | null = null;
@@ -365,7 +382,7 @@ export async function executeScan(scanId: string, deps: ScanDependencies = {}): 
     const status: ScanStatus =
       ranSources.length > 0 && failedSources.length === ranSources.length
         ? "failed"
-        : failedSources.length > 0 || aiProblem
+        : failedSources.length > 0 || aiProblem || saveFailures > 0
           ? "partial"
           : "completed";
     await finish(status, {
@@ -374,6 +391,7 @@ export async function executeScan(scanId: string, deps: ScanDependencies = {}): 
       diagnostics: toJson({
         fetched,
         inScanDuplicates,
+        saveFailures,
         skipped: outcomes.reduce<Record<string, number>>((all, outcome) => {
           for (const [reason, count] of Object.entries(outcome.skipped))
             all[reason] = (all[reason] ?? 0) + (count ?? 0);

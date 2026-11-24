@@ -108,6 +108,17 @@ Requirements: 5+ years of TypeScript. Benefits: 30 days of holiday and a learnin
     expect(classify("A relocation bonus may be available.").relocation.status).toBe("unknown");
   });
 
+  it.each([
+    "We can, however, provide visa transfer from current Dutch employer.",
+    "We offer visa sponsorship only for candidates already living in Germany.",
+    "We support visa renewals for existing employees.",
+    "We provide work permit support within the EU.",
+  ])("does not confirm sponsorship from the limited offer %j", (sentence) => {
+    const result = classify(sentence);
+    expect(result.sponsorship.status).toBe("possible");
+    expect(result.sponsorship.evidence[0].reading).toBe("uncertain");
+  });
+
   it("does not mistake the Visa card network for an immigration visa", () => {
     expect(readSponsorshipSentence("We support Visa, Mastercard and American Express payments.")).toBeNull();
     expect(classify("We offer integrations with Visa and Mastercard card schemes.").sponsorship.status).toBe("unknown");

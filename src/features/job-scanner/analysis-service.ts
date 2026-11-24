@@ -15,6 +15,7 @@ import { SCAN_LIMITS } from "./constants";
 import { visaColumns } from "./listings-service";
 import { computeMatch } from "./rubric";
 import { jobScreeningAiOutputSchema, screeningSignalsSchema, type Rubric, type ScreeningSignals } from "./schema";
+import { sourceLabel } from "./sources/registry";
 import { classifyVisaSupport, mergeAiSignals } from "./sponsorship";
 import { sha256 } from "./text";
 
@@ -129,7 +130,7 @@ export async function screenListing(
     );
     const base = classifyVisaSupport(listing.description, {
       sourceUrl: listing.url,
-      sourceFlag: sourceFlag ? { label: "The job board" } : null,
+      sourceFlag: sourceFlag ? { label: sourceLabel(listing.sourceId) } : null,
     });
     const visa = mergeAiSignals(base, signals, listing.description, listing.url);
     const data = {

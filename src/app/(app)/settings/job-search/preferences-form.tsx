@@ -71,7 +71,7 @@ export function PreferencesForm(props: Props) {
         <Field
           label="One per line"
           htmlFor="keywords"
-          hint='A listing is kept when its title contains every word of one line, in any order. "Frontend Engineer" also matches "Senior Front-End Developer".'
+          hint='A listing is kept when its title contains every word of one line, in any order: "Frontend Engineer" also matches "Senior Front-End Developer". Start a line with a minus sign to leave titles out, for example "-React Native".'
         >
           <Textarea
             id="keywords"

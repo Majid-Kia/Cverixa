@@ -55,35 +55,50 @@ function codePoint(value: number): string {
   }
 }
 
+function stripMarkup(html: string): string {
+  return (
+    html
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<(script|style|noscript|template|iframe|svg)\b[\s\S]*?<\/\1\s*>/gi, " ")
+      .replace(/<(script|style|noscript|template|iframe|svg)\b[^>]*>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<li\b[^>]*>/gi, "\n- ")
+      .replace(/<\/(p|div|section|article|ul|ol|table|tr|h[1-6]|blockquote)\s*>/gi, "\n\n")
+      .replace(/<(p|div|section|article|h[1-6]|tr)\b[^>]*>/gi, "\n")
+      // Inline markup sits inside words and sentences; removing it must not add spaces.
+      .replace(/<\/?(strong|em|b|i|u|span|a|code|small|mark|sup|sub|font)\b[^>]*>/gi, "")
+      .replace(/<\/?[a-z][^>]*>/gi, " ")
+  );
+}
+
+const HAS_MARKUP = /<\/?[a-z][a-z0-9]*(\s[^<>]*)?\/?>/i;
+
 /**
  * Convert a source's HTML description to plain text. Scripts, styles and all
  * markup are removed; paragraphs and list items become lines. The result is
  * only ever rendered as text, so nothing in a posting can run in the browser.
+ *
+ * Sources escape their HTML inconsistently: Greenhouse returns it entity-escaped
+ * ("&lt;p&gt;") and some boards escape it twice, so markup can reappear after
+ * entities are decoded. Stripping and decoding therefore repeat until no markup
+ * is left (a bounded number of times).
  */
 export function htmlToText(html: string): string {
   let text = html;
-  // Greenhouse returns entity-escaped HTML ("&lt;p&gt;").
-  if (!/<[a-z!/]/i.test(text) && /&lt;\/?[a-z]/i.test(text)) text = decodeEntities(text);
-  text = text
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<(script|style|noscript|template|iframe|svg)\b[\s\S]*?<\/\1\s*>/gi, " ")
-    .replace(/<(script|style|noscript|template|iframe|svg)\b[^>]*>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<li\b[^>]*>/gi, "\n- ")
-    .replace(/<\/(p|div|section|article|ul|ol|table|tr|h[1-6]|blockquote)\s*>/gi, "\n\n")
-    .replace(/<(p|div|section|article|h[1-6]|tr)\b[^>]*>/gi, "\n")
-    // Inline markup sits inside words and sentences; removing it must not add spaces.
-    .replace(/<\/?(strong|em|b|i|u|span|a|code|small|mark|sup|sub|font)\b[^>]*>/gi, "")
-    .replace(/<\/?[a-z][^>]*>/gi, " ");
-  return cleanText(decodeEntities(text));
+  for (let pass = 0; pass < 4; pass += 1) {
+    text = decodeEntities(stripMarkup(text));
+    if (!HAS_MARKUP.test(text)) break;
+  }
+  return cleanText(stripMarkup(text));
 }
 
 /** Normalise whitespace and cap the length of posting text. */
 export function cleanText(text: string): string {
   return text
+    .toWellFormed()
     .replace(/\r\n?/g, "\n")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
-    .replace(/[ \t ]+/g, " ")
+    .replace(/[ \t\u00a0]+/g, " ")
     .split("\n")
     .map((line) => line.trim())
     .join("\n")
@@ -193,8 +208,16 @@ function titleTokens(value: string): string[] {
  */
 export function matchKeywords(title: string, keywords: string[]): string[] {
   const tokens = new Set(titleTokens(title));
-  return keywords.filter((keyword) => {
-    const wanted = titleTokens(keyword);
+  const contains = (phrase: string) => {
+    const wanted = titleTokens(phrase);
     return wanted.length > 0 && wanted.every((token) => tokens.has(token));
-  });
+  };
+  // A line that starts with "-" excludes: "-React Native" drops mobile roles that "React Engineer" would match.
+  if (keywords.filter(isExclusion).some((keyword) => contains(keyword.slice(1)))) return [];
+  return keywords.filter((keyword) => !isExclusion(keyword) && contains(keyword));
+}
+
+/** Whether a keyword line is an exclusion ("-React Native") instead of a title to look for. */
+export function isExclusion(keyword: string): boolean {
+  return keyword.trim().startsWith("-");
 }

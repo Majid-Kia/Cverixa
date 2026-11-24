@@ -50,7 +50,11 @@ export const jobSearchPreferencesSchema = z.object({
     .max(120)
     .refine((codes) => codes.every(isCountryCode), "Unknown country selected.")
     .transform((codes) => [...new Set(codes)]),
-  keywords: stringList(40, 120).refine((items) => items.length > 0, "Add at least one job title or keyword."),
+  /** Titles to look for; a line starting with "-" excludes titles that contain it. */
+  keywords: stringList(40, 120).refine(
+    (items) => items.some((item) => !item.startsWith("-")),
+    "Add at least one job title or keyword.",
+  ),
   workArrangements: z.array(z.enum(WORK_ARRANGEMENTS)).transform((items) => [...new Set(items)]),
   requireSponsorship: z.boolean(),
   preferRelocation: z.boolean(),

@@ -87,6 +87,16 @@ describe("title matching", () => {
     expect(matchKeywords("Sr. Frontend Engineer", ["Senior Frontend Engineer"])).toEqual(["Senior Frontend Engineer"]);
   });
 
+  it("leaves out titles that match an exclusion line", () => {
+    const keywords = ["React Engineer", "Frontend Engineer", "-React Native", "-Intern"];
+    expect(matchKeywords("Senior React Engineer", keywords)).toEqual(["React Engineer"]);
+    expect(matchKeywords("Senior Mobile Engineer (React Native)", keywords)).toEqual([]);
+    expect(matchKeywords("Frontend Engineer Intern", keywords)).toEqual([]);
+    expect(matchKeywords("Native Mobile Engineer", keywords)).toEqual([]);
+    // An exclusion on its own is not something to search for.
+    expect(matchKeywords("React Native Developer", ["-Frontend"])).toEqual([]);
+  });
+
   it("does not match unrelated titles", () => {
     expect(matchKeywords("Backend Engineer", ["Frontend Engineer"])).toEqual([]);
     expect(matchKeywords("Account Manager", ["Frontend Engineer", "React Developer"])).toEqual([]);
@@ -188,5 +198,14 @@ describe("processing a posting", () => {
     expect(inferArrangement("unknown", "Remote - Germany", "Engineer", "")).toBe("remote");
     expect(inferArrangement(undefined, "Berlin", "Engineer", "This is a fully remote position.")).toBe("remote");
     expect(inferArrangement(undefined, "Berlin", "Engineer", "Join our team.")).toBe("unknown");
+  });
+});
+
+describe("double-encoded descriptions", () => {
+  it("removes markup that only appears after entities are decoded", () => {
+    const text = htmlToText(
+      '<p>We can &lt;span style="text-decoration: underline;"&gt;provide visa support&lt;/span&gt;.&lt;/p&gt;</p><p>&amp;lt;b&amp;gt;Apply&amp;lt;/b&amp;gt; now</p>',
+    );
+    expect(text).toBe("We can provide visa support.\n\nApply now");
   });
 });

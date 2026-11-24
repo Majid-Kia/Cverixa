@@ -88,6 +88,15 @@ const INSTRUCTION =
 const HEDGED =
   /\b(may|might|could|possibly|potentially|case[- ]by[- ]case|depending|depends|in some cases|certain (roles|positions|cases)|for the right candidate|exceptional|can be (considered|discussed)|to be discussed|eligible candidates|where applicable|subject to|if (required|needed|applicable))\b/i;
 
+/**
+ * Wording that narrows a statement to particular people or cases: "we can,
+ * however, provide a visa transfer from your current employer", "sponsorship
+ * only for senior roles". Related to sponsorship, but not an offer to sponsor
+ * whoever is hired, so it never confirms.
+ */
+const LIMITED =
+  /\b(however|only|solely|transfers?|renewals?|extensions?|already|existing|current(ly)? (employer|visa|permit|residen\w+|work)|limited|restricted|within the (eu|eea|uk|us|country))\b/i;
+
 /** Statements about the applicant's situation: relevant, but not a commitment by the employer. */
 const CANDIDATE_SIDE =
   /\b(if you|do you|will you|whether you|you (will |may |might |currently )?(need|require|hold|have)|your (current )?(visa|work permit|sponsorship|immigration) (status|situation|requirements?|needs?)|please (state|indicate|mention|let us know|note|tell)|candidates? (who|that|requiring|must|need)|applicants? (who|that|requiring|must|need))\b/i;
@@ -124,7 +133,7 @@ function matchesAny(patterns: RegExp[], sentence: string): boolean {
 
 /** Whether a sentence hedges or asks, so it cannot be a commitment. */
 export function isHedged(sentence: string): boolean {
-  return HEDGED.test(sentence) || CANDIDATE_SIDE.test(sentence) || /\?\s*$/.test(sentence);
+  return HEDGED.test(sentence) || LIMITED.test(sentence) || CANDIDATE_SIDE.test(sentence) || /\?\s*$/.test(sentence);
 }
 
 /** How one sentence reads with respect to sponsorship, or null when it is not about it. */
