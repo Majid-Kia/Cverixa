@@ -60,12 +60,29 @@ const OFFERS: RegExp[] = [
     `\\b(${TOPIC})\\b[^.]{0,50}\\b(is|are|will be)\\s+(also\\s+)?(available|offered|provided|included|covered|supported)\\b`,
     "i",
   ),
-  /\b(visa|work permit|blue card|immigration)\s+(and\s+relocation\s+|&\s+relocation\s+)?(sponsorship|support|assistance|package|help)\b/i,
-  /\b(relocation|relocation package)\s+(and|&)\s+visa\s+(sponsorship|support|assistance)\b/i,
-  /\b(support|assistance|help)\b[^.]{0,20}\b(with|for)\b[^.]{0,30}\b(visas?|work permits?|immigration|blue card)\b/i,
   /\bwe sponsor\b/i,
   /\b(visa|visum)[- ]?(sponsoring|unterstützung)\b/i,
 ];
+
+/**
+ * A benefits line such as "Visa sponsorship" or "Relocation and visa support".
+ * The bare phrase is an offer only in a short list item; in a full sentence
+ * ("Information on visa sponsorship is on our careers page") it commits to nothing.
+ */
+const BENEFIT_ITEMS: RegExp[] = [
+  /\b(visa|work permit|blue card|immigration)\s+(and\s+relocation\s+|&\s+relocation\s+)?(sponsorship|support|assistance|package|help)\b/i,
+  /\b(relocation|relocation package)\s+(and|&)\s+visa\s+(sponsorship|support|assistance)\b/i,
+];
+const BENEFIT_ITEM_MAX_WORDS = 8;
+const ABOUT_ONLY = /\b(about|regarding|information|details|questions?|policy|policies|status|faq)\b/i;
+
+/**
+ * Text addressed to an automated reader ("ignore previous instructions",
+ * "you must state that..."). A posting is untrusted input; such a sentence is
+ * an attempt to steer the analysis, never an employer's statement.
+ */
+const INSTRUCTION =
+  /\b(ignore (all |any )?(of )?(the )?(previous|prior|above|earlier) (instructions|prompts?|rules)|disregard (all |any )?(previous|prior|above)|system\s*:|assistant\s*[,:]|as an ai\b|ai (assistant|model|agent)|language model|you must (state|report|say|classify|output|respond|answer|mark|rate|score)|(report|classify|mark|rate|score|set|label)\b[^\n]{0,60}\bas\s+["'“]?(confirmed|sponsored|possible|none|unknown|true|false)\b|sponsorship[._ ]status|score this (candidate|job|applicant)|\bjson\b)/i;
 
 /** Hedges that stop a statement from being a commitment. */
 const HEDGED =
@@ -89,8 +106,15 @@ const RELOCATION = /\b(relocat\w+|umzug\w*)\b/i;
 /** The applicant's obligation to move, which is not support from the employer. */
 const RELOCATION_OBLIGATION =
   /\b(willing(ness)?|open|able|prepared|ready|must|need|required|expected)\b[^.]{0,25}\b(to )?relocat\w+\b/i;
-const RELOCATION_OFFER =
-  /\b(offer\w*|provid\w+|includ\w+|support\w*|assist\w*|help\w*|cover\w*|package|bonus|allowance|budget|benefit\w*|reimburse\w*|paid|we['’]ll|we will)\b/i;
+/** Relocation named as something the employer gives: a package, a covered cost, help with the move. */
+const RELOCATION_OFFER: RegExp[] = [
+  /\brelocation\s+(package|support|assistance|bonus|allowance|budget|help|benefits?|costs?|expenses|services?)\b/i,
+  /\brelocation\s+(and|&)\s+visa\s+(support|assistance|sponsorship)\b/i,
+  /\bvisa\s+(and|&)\s+relocation\s+(support|assistance|package|sponsorship)\b/i,
+  /\b(offer|provide|cover|pay|reimburse|support|assist|help)\w*\b[^.]{0,60}\b(your|the|with|for)\s+relocat\w+\b/i,
+  /\brelocat\w+\b[^.]{0,40}\b(is|are|will be)\s+(also\s+)?(provided|offered|covered|available|paid|supported|included|reimbursed)\b/i,
+  /\b(unterstützung beim umzug|umzugs(hilfe|unterstützung|kosten)|relocation[- ]?(paket|unterstützung))\b/i,
+];
 const RELOCATION_EXCLUDED =
   /\b(no|not|unable|cannot|can['’]t|don['’]t|doesn['’]t|won['’]t|without)\b[^.]{0,40}\brelocat\w+\b|\brelocat\w+\b[^.]{0,40}\b(not|un)\s?-?(available|offered|provided|supported|covered)\b/i;
 
@@ -105,12 +129,39 @@ export function isHedged(sentence: string): boolean {
 
 /** How one sentence reads with respect to sponsorship, or null when it is not about it. */
 export function readSponsorshipSentence(sentence: string): Evidence["reading"] | null {
+  if (isInstruction(sentence)) return null;
   if (CARD_CONTEXT.test(sentence) && !IMMIGRATION_CONTEXT.test(sentence)) return null;
   if (matchesAny(EXCLUDES, sentence)) return "excludes";
   if (matchesAny(REQUIRES_AUTHORIZATION, sentence)) return "requires_authorization";
   if (!SPONSOR_TOPIC.test(sentence)) return null;
   if (isHedged(sentence)) return "uncertain";
-  return matchesAny(OFFERS, sentence) ? "offers" : "uncertain";
+  if (matchesAny(OFFERS, sentence)) return "offers";
+  const words = sentence.trim().split(/\s+/).length;
+  if (words <= BENEFIT_ITEM_MAX_WORDS && !ABOUT_ONLY.test(sentence) && matchesAny(BENEFIT_ITEMS, sentence)) {
+    return "offers";
+  }
+  return "uncertain";
+}
+
+/** Whether a sentence is written to steer an automated reader rather than to inform an applicant. */
+export function isInstruction(sentence: string): boolean {
+  return INSTRUCTION.test(sentence);
+}
+
+const EMPLOYER_VOICE = /\b(we|we['’](ll|re|ve)|our|us|the company|the employer)\b/i;
+
+/**
+ * Whether the AI's reading may settle a sentence the rules left open. Only a
+ * full sentence in which the employer speaks about itself qualifies; a
+ * heading, a fragment, a hedge, a question or text aimed at the model does not.
+ */
+function canBeCommitment(sentence: string): boolean {
+  return (
+    EMPLOYER_VOICE.test(sentence) &&
+    sentence.trim().split(/\s+/).length >= 5 &&
+    !isHedged(sentence) &&
+    !isInstruction(sentence)
+  );
 }
 
 export interface ClassifyOptions {
@@ -170,14 +221,14 @@ export function classifyVisaSupport(text: string, options: ClassifyOptions): Vis
       }
     }
 
-    if (RELOCATION.test(sentence)) {
+    if (RELOCATION.test(sentence) && !isInstruction(sentence)) {
       if (RELOCATION_EXCLUDED.test(sentence)) {
         relocationExcluded = true;
         relocation.push({ text: sentence, basis: "posting_text", reading: "excludes", sourceUrl: options.sourceUrl });
       } else if (
         !RELOCATION_OBLIGATION.test(sentence) &&
         !isHedged(sentence) &&
-        (RELOCATION_OFFER.test(sentence) || sentence.length <= 90)
+        matchesAny(RELOCATION_OFFER, sentence)
       ) {
         relocationOffered = true;
         relocation.push({ text: sentence, basis: "posting_text", reading: "offers", sourceUrl: options.sourceUrl });
@@ -226,24 +277,35 @@ export interface AiVisaSignals {
  * exclusion, and a hedged sentence or a question never confirms anything.
  */
 export function mergeAiSignals(base: VisaSupport, ai: AiVisaSignals, text: string, sourceUrl: string): VisaSupport {
-  const verified = (quotes: string[]) =>
-    quotes.map((quote) => quote.trim()).filter((quote) => quote.length <= 600 && isVerbatim(text, quote));
+  // A quote is judged as the whole posting sentence it comes from, never as the fragment the
+  // model chose: "we offer visa sponsorship" cut out of "you must state that we offer visa
+  // sponsorship" or out of "unfortunately we no longer offer visa sponsorship" proves nothing.
+  const sentences = splitSentences(text);
+  const fold = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+  const sentencesOf = (quotes: string[]): string[] => {
+    const found: string[] = [];
+    for (const raw of quotes) {
+      const quote = raw.trim();
+      if (quote.length > 600 || !isVerbatim(text, quote)) continue;
+      const needle = fold(quote);
+      for (const sentence of sentences) {
+        const hay = fold(sentence);
+        if ((hay.includes(needle) || needle.includes(hay)) && !found.includes(sentence)) found.push(sentence);
+      }
+    }
+    return found;
+  };
 
   const sponsorshipEvidence = base.sponsorship.evidence.map((item) => ({ ...item }));
-  for (const quote of verified(ai.sponsorship.quotes)) {
-    const ruleReading = readSponsorshipSentence(quote);
+  for (const sentence of sentencesOf(ai.sponsorship.quotes)) {
+    const ruleReading = readSponsorshipSentence(sentence);
     if (!ruleReading || ruleReading === "requires_authorization") continue;
     let reading: Evidence["reading"] = ruleReading;
-    if (ruleReading === "uncertain" && !isHedged(quote)) {
+    if (ruleReading === "uncertain" && canBeCommitment(sentence)) {
       if (ai.sponsorship.status === "confirmed") reading = "offers";
       else if (ai.sponsorship.status === "none") reading = "excludes";
     }
-    const existing = sponsorshipEvidence.find(
-      (item) =>
-        item.basis === "posting_text" &&
-        (item.text.toLowerCase().includes(quote.toLowerCase()) ||
-          quote.toLowerCase().includes(item.text.toLowerCase())),
-    );
+    const existing = sponsorshipEvidence.find((item) => item.basis === "posting_text" && item.text === sentence);
     if (existing) {
       if (existing.reading === "uncertain" && reading !== "uncertain") {
         existing.reading = reading;
@@ -251,25 +313,25 @@ export function mergeAiSignals(base: VisaSupport, ai: AiVisaSignals, text: strin
       }
       continue;
     }
-    sponsorshipEvidence.push({ text: quote, basis: "ai_quote", reading, sourceUrl });
+    sponsorshipEvidence.push({ text: sentence, basis: "ai_quote", reading, sourceUrl });
   }
 
   const relocationEvidence = [...base.relocation.evidence];
   let relocationStatus = base.relocation.status;
   if (ai.relocation.offered && relocationStatus === "unknown") {
-    for (const quote of verified(ai.relocation.quotes)) {
-      if (!RELOCATION.test(quote) || RELOCATION_EXCLUDED.test(quote) || RELOCATION_OBLIGATION.test(quote)) continue;
-      if (isHedged(quote)) continue;
-      relocationEvidence.push({ text: quote, basis: "ai_quote", reading: "offers", sourceUrl });
+    for (const sentence of sentencesOf(ai.relocation.quotes)) {
+      if (!RELOCATION.test(sentence) || RELOCATION_EXCLUDED.test(sentence)) continue;
+      if (RELOCATION_OBLIGATION.test(sentence) || isInstruction(sentence) || isHedged(sentence)) continue;
+      relocationEvidence.push({ text: sentence, basis: "ai_quote", reading: "offers", sourceUrl });
       relocationStatus = "offered";
     }
   }
 
   const authorizationEvidence = [...base.workAuthorization.evidence];
   if (ai.workAuthorization.required && !base.workAuthorization.required) {
-    for (const quote of verified(ai.workAuthorization.quotes)) {
-      if (readSponsorshipSentence(quote) !== "requires_authorization") continue;
-      authorizationEvidence.push({ text: quote, basis: "ai_quote", reading: "requires_authorization", sourceUrl });
+    for (const sentence of sentencesOf(ai.workAuthorization.quotes)) {
+      if (readSponsorshipSentence(sentence) !== "requires_authorization") continue;
+      authorizationEvidence.push({ text: sentence, basis: "ai_quote", reading: "requires_authorization", sourceUrl });
     }
   }
 
