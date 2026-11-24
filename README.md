@@ -6,6 +6,8 @@ AI-powered resume builder and job-specific resume tailoring platform.
 
 Cverixa keeps one structured **Master Career Profile**, analyses a pasted job description, tailors the profile to it with a pluggable AI provider (OpenAI, Anthropic or a local Ollama model), validates every generated claim against confirmed facts, and renders deterministic PDFs with bundled Inter fonts through server-side Chromium. Nothing is invented: unsupported claims are rejected and reported.
 
+The **Job Scanner** finds jobs in your target countries from sources that publish their listings for this purpose, states what each posting says about visa sponsorship with the sentence it comes from, scores each job against your confirmed profile, runs on request or daily on the server, and opens any listing in the tailoring workflow. See [docs/job-scanner.md](docs/job-scanner.md).
+
 The product requirements live in [docs/requirements.md](docs/requirements.md).
 
 ## Status
@@ -20,6 +22,7 @@ MVP implementation of all six phases from the PRD:
 | 4     | Job analysis, evidence matching, tailoring, claim validation, Quick Generate, Review Mode, change reports | Done  |
 | 5     | Three templates, Inter typography, A4/Letter, live preview, PDF export with extraction/font checks        | Done  |
 | 6     | Immutable version history, restore/duplicate, end-to-end tests, deployment docs                           | Done  |
+| 7     | Job Scanner: source adapters, sponsorship classification, match scoring, daily schedule, job tracking     | Done  |
 
 Known limitations are listed at the end of this file.
 
@@ -57,16 +60,16 @@ Provider API keys are read from the server environment only (`OPENAI_API_KEY`, `
 
 ## Scripts
 
-| Command                                                      | Purpose                                                                                         |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `pnpm dev` / `pnpm build` / `pnpm start`                     | Development server, production build, production server                                         |
-| `pnpm lint`, `pnpm typecheck`, `pnpm format`                 | ESLint, TypeScript, Prettier                                                                    |
-| `pnpm test:unit`                                             | Schema, validation, evidence matching, providers, templates, security                           |
-| `pnpm test:integration`                                      | PDF/DOCX import and database-backed services (embedded PostgreSQL locally)                      |
-| `pnpm test:pdf`                                              | Renders every template against fixtures and checks text extraction, Inter embedding, pagination |
-| `pnpm test:e2e`                                              | Playwright flow: login, settings, profile, job, generate, review, templates, history            |
-| `pnpm db:migrate` / `pnpm db:migrate:dev` / `pnpm db:studio` | Prisma migrations and data browser                                                              |
-| `pnpm owner:create`                                          | Create or reset the single owner account                                                        |
+| Command                                                      | Purpose                                                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `pnpm dev` / `pnpm build` / `pnpm start`                     | Development server, production build, production server                                           |
+| `pnpm lint`, `pnpm typecheck`, `pnpm format`                 | ESLint, TypeScript, Prettier                                                                      |
+| `pnpm test:unit`                                             | Schema, validation, evidence matching, providers, templates, security                             |
+| `pnpm test:integration`                                      | PDF/DOCX import and database-backed services (embedded PostgreSQL locally)                        |
+| `pnpm test:pdf`                                              | Renders every template against fixtures and checks text extraction, Inter embedding, pagination   |
+| `pnpm test:e2e`                                              | Playwright flow: login, settings, profile, job, generate, review, templates, history, job scanner |
+| `pnpm db:migrate` / `pnpm db:migrate:dev` / `pnpm db:studio` | Prisma migrations and data browser                                                                |
+| `pnpm owner:create`                                          | Create or reset the single owner account                                                          |
 
 Integration and e2e tests start an embedded PostgreSQL automatically when `DATABASE_URL_TEST` (integration) or `DATABASE_URL` (e2e) is not provided. CI uses a PostgreSQL service container.
 
@@ -76,7 +79,8 @@ Integration and e2e tests start an embedded PostgreSQL automatically when `DATAB
 src/app/                 Next.js routes (App Router), API route handlers
 src/components/          Shared UI primitives and app shell
 src/features/            Feature modules: authentication, career-profile, resume-import,
-                         job-analysis, resume-tailoring, resume-rendering, resume-history, ai-settings
+                         job-analysis, resume-tailoring, resume-rendering, resume-history, ai-settings,
+                         job-scanner (source adapters, scans, sponsorship, matching, scheduling)
 src/server/ai/           Provider contract, adapters (openai, anthropic, ollama, mock), prompts, schemas
 src/server/database/     Prisma client
 src/server/document-processing/  PDF/DOCX validation and text extraction
@@ -94,7 +98,8 @@ docs/                    Requirements, architecture, data model, providers, rend
 - [docs/data-model.md](docs/data-model.md) – entities, revisions, evidence tracking
 - [docs/ai-providers.md](docs/ai-providers.md) – adapters, model ids, Ollama constraints, cost notes
 - [docs/resume-rendering.md](docs/resume-rendering.md) – templates, typography, PDF pipeline and validation
-- [docs/deployment.md](docs/deployment.md) – environment variables, Docker, migrations, backups
+- [docs/job-scanner.md](docs/job-scanner.md) – job sources, LinkedIn limits, sponsorship rules, match rubric, scheduling
+- [docs/deployment.md](docs/deployment.md) – environment variables, Docker, migrations, scheduled scans, backups
 - [docs/decisions/](docs/decisions/) – architecture decision records
 
 ## Security notes
@@ -108,3 +113,4 @@ Owner-only authentication with bcrypt password hashing, database-backed HttpOnly
 - Rate limiting is in-memory and per instance.
 - The evidence matcher is a transparent term-matching heuristic; it reports coverage, never a score.
 - Model identifiers change over time; use **Load models** in AI Settings to pick a live id.
+- Job Scanner: LinkedIn, Indeed, EURES and Welcome to the Jungle cannot be scanned (no permitted access) and are search links plus manual import; Greenhouse, Ashby and Lever cover only the company boards you list; the Lever adapter is not yet verified against the live service. More in [docs/job-scanner.md](docs/job-scanner.md).

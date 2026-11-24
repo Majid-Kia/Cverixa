@@ -1,0 +1,49 @@
+name: Job scan trigger
+
+# Calls the application's scheduled-scan endpoint so daily Job Scanner runs
+# start even when the host puts the server to sleep (for example Render's free
+# tier). The endpoint starts only the scans whose scheduled time has passed and
+# each scheduled slot runs once, so the frequency here only sets how late a
+# scan can start. See docs/job-scanner.md.
+#
+# Setup: repository secret CRON_SECRET (same value as on the server) and
+# repository variable APP_URL (public URL of the app, no trailing slash).
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: job-scan-cron
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  trigger:
+    name: Start due scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ vars.APP_URL != '' }}
+    steps:
+      - name: Call the scheduled-scan endpoint
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not set for this repository; nothing to do."
+            exit 0
+          fi
+          # A sleeping service can take a while to answer its first request.
+          status=$(curl --silent --show-error --output response.json --write-out "%{http_code}" \
+            --max-time 120 --retry 3 --retry-delay 20 --retry-all-errors \
+            --request POST --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL%/}/api/cron/job-scan")
+          echo "HTTP ${status}"
+          cat response.json || true
+          case "$status" in
+            200|202) ;;
+            *) exit 1 ;;
+          esac
