@@ -18,6 +18,8 @@ const envSchema = z.object({
   IMPORT_MAX_FILE_SIZE_MB: z.coerce.number().positive().default(10),
   IMPORT_MAX_PAGES: z.coerce.number().int().positive().default(10),
   CHROMIUM_EXECUTABLE_PATH: z.string().optional(),
+  /** Bearer token an external cron sends to /api/cron/job-scan. The endpoint is disabled without it. */
+  CRON_SECRET: z.string().min(24, "CRON_SECRET must be at least 24 characters").optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -39,6 +41,7 @@ export function getEnv(): Env {
     OPENAI_API_KEY: emptyToUndefined(process.env.OPENAI_API_KEY),
     ANTHROPIC_API_KEY: emptyToUndefined(process.env.ANTHROPIC_API_KEY),
     CHROMIUM_EXECUTABLE_PATH: emptyToUndefined(process.env.CHROMIUM_EXECUTABLE_PATH),
+    CRON_SECRET: emptyToUndefined(process.env.CRON_SECRET),
     OLLAMA_ALLOWED_HOSTS: process.env.OLLAMA_ALLOWED_HOSTS ?? "",
   });
   if (!parsed.success) {

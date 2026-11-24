@@ -18,6 +18,20 @@ Schema: [prisma/schema.prisma](../prisma/schema.prisma). Migrations: `prisma/mig
 | `CoverLetter`             | The cover letter for one job        | One per `JobDescription` (unique `jobDescriptionId`, deleted with the job); `body` is plain text the owner edits; `report` = `CoverLetterReport`; `edited`, `generatedAt`, provider and model recorded; generating again replaces it |
 | `AIProviderConfiguration` | Non-secret provider preferences     | `providerId`, `modelId`, `isDefault`, `configuration` (timeout). API keys are never stored                                                                                                                                           |
 
+### Job Scanner entities
+
+| Entity                   | Purpose                             | Notes                                                                                                                                                                                                                                                                                         |
+| ------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JobSearchPreferences`   | What the Job Scanner looks for      | One per owner: countries (ISO codes), job titles, work arrangements, visa filters, AI limits, rubric weights, and the daily schedule (`scheduleTime`, `scheduleTimezone`, `nextRunAt` in UTC)                                                                                                 |
+| `JobSourceConfiguration` | Per-owner settings of a job source  | `sourceId`, `enabled`, `configuration` (for example the company boards to follow). The adapters are code; no credentials are stored                                                                                                                                                           |
+| `JobListing`             | A discovered or imported posting    | Source id and the source's own id (unique per owner), canonical `url`, `applyUrl`, `dedupeKey`, country, arrangement, plain-text `description` and its hash, sponsorship / relocation / work-authorisation status with evidence, tracking `status`, `matchScore`, optional `jobDescriptionId` |
+| `JobMatchAnalysis`       | Extraction and match of one listing | Requirements extracted by the AI (`analysis`, the `JobAnalysis` shape) cached by `descriptionHash`; the score, breakdown, matching skills and missing qualifications for one `careerProfileRevisionId` and `rubricHash`                                                                       |
+| `JobListingEvent`        | History of a listing                | Append-only: discovered, status changed (from/to), content updated, imported, tailoring started                                                                                                                                                                                               |
+| `JobScan`                | One scan run                        | Trigger, status, `activeLock` (unique; holds the owner id while running), `scheduledFor` (unique per owner), timestamps, countries and titles searched, sources, counts, `errorSummary`, `diagnostics`                                                                                        |
+| `JobScanSourceResult`    | One source within a scan            | Status (`completed`, `failed`, `skipped`), postings read and kept, new and duplicate counts, requests, duration, error, why postings were left out                                                                                                                                            |
+
+The prompt's suggested `JobSource`, `JobRequirement` and `JobApplicationStatus` entities map onto existing conventions instead of new tables: sources are code adapters with a per-owner settings row (as AI providers are), requirements are the `JobAnalysis` JSON (as on `JobDescription`), and the tracking status is a column on the listing with its changes in `JobListingEvent`.
+
 ## Structured content
 
 ### CareerProfileData (`src/features/career-profile/schema.ts`)
@@ -71,8 +85,16 @@ A separate flow from resume tailoring, started with "Generate cover letter" on t
 
 Violations remove the claim and add a `rejectedClaims` entry; `validationStatus` becomes `passed_with_rejections` (or `failed` if nothing usable remains, in which case nothing is saved).
 
+### Job Scanner structures (`src/features/job-scanner/`)
+
+- **Evidence** (`sponsorship.ts`): `{text, basis, reading, sourceUrl}`. `basis` is `posting_text`, `ai_quote` (verified word for word), `source_flag` or `relocation_signal`; `reading` is `offers`, `excludes`, `uncertain` or `requires_authorization`. Stored on the listing for sponsorship, relocation and work authorisation.
+- **Match breakdown** (`schema.ts`): the five rubric components with weight, value and points; matching qualifications with their profile evidence; stated restrictions; years asked for and years in the profile.
+
 ## Rules
 
+- A scan never resets a listing's tracking status. A rediscovered job updates the existing row.
+- A match score is valid for one description hash, profile revision and rubric; any change recomputes it without AI.
+- Deleting a job description sets `JobListing.jobDescriptionId` to null; the listing stays.
 - Revisions are append-only; "restore" and "duplicate" create new revisions.
 - `ResumeRevision.careerProfileRevisionId` ties a resume to the exact profile version it was generated from.
 - `JobDescription.structuredRequirements` is reused across generations until the text changes (NFR-004).

@@ -17,6 +17,8 @@ src/features/<name>     One module per product capability:
   resume-rendering      fonts, HTML rendering, Chromium PDF, PDF validation, editor UI
   resume-history        resumes and immutable revisions, restore/duplicate
   ai-settings           provider preferences (no secrets), connection checks
+  job-scanner           job source adapters, scan pipeline, sponsorship classification,
+                        match scoring, scheduling, listing tracking (see docs/job-scanner.md)
 src/server/ai           Provider contract + adapters + prompts + AI output schemas
 src/server/database     Prisma client (driver adapter for pg)
 src/server/document-processing  Magic-byte validation, PDF (unpdf) and DOCX (mammoth) extraction
@@ -36,11 +38,13 @@ src/types               ResumeContent schema shared by tailoring, rendering and 
 | Content is independent of presentation       | `ResumeContent` (src/types/resume-content.ts) is stored per revision; `templateId` is a separate column       |
 | Master profile is never changed by tailoring | Tailoring reads `confirmedFactsOnly(profile)` and writes only `Resume`/`ResumeRevision`/`GenerationRun`       |
 
+Two more boundaries come with the Job Scanner. Job sources never see the candidate: source adapters receive only the search query and their own settings, and their requests go through a host allow-list (`src/features/job-scanner/sources/http.ts`). Scanning has no tailoring pipeline of its own: a listing becomes a `JobDescription` and is tailored by `generateResume`; the scanner only prepares the hand-off.
+
 ## Request flows
 
 ### Authentication
 
-`src/proxy.ts` redirects requests without a session cookie to `/login`. Every page under `src/app/(app)` and every server action calls `requireUser()`, which resolves the cookie to a `Session` row (token hashed with SHA-256 and the `SESSION_SECRET`). Login is rate limited (10 attempts / 15 minutes per client+email) and passwords are verified with bcrypt.
+`src/proxy.ts` redirects requests without a session cookie to `/login` (except `/api/health` and `/api/cron`; the latter is called by a scheduler and checks a bearer token instead). Every page under `src/app/(app)` and every server action calls `requireUser()`, which resolves the cookie to a `Session` row (token hashed with SHA-256 and the `SESSION_SECRET`). Login is rate limited (10 attempts / 15 minutes per client+email) and passwords are verified with bcrypt.
 
 ### Import (FR-001)
 
@@ -67,6 +71,20 @@ getProfileSnapshot -> confirmedFactsOnly
 
 Stage 7 and 8 (render + validate) run on demand through `/api/resumes/[id]/pdf`.
 
+### Job Scanner
+
+```text
+startScan (owner lock) -> executeScan
+   -> each enabled source adapter, isolated (sources/http.ts: allow-listed hosts, budget, retries)
+   -> processSourceJob: title match -> country -> arrangement -> classifyVisaSupport -> filters
+   -> dedupeCandidates (across sources) -> saveCandidate (update in place, status untouched)
+   -> screenListing: runStructuredTask("job_screening"), cached by description hash
+        -> mergeAiSignals (verbatim quotes only)
+   -> refreshMatch: computeMatch = matchEvidence + rubric, no AI
+```
+
+Scheduled runs: `claimDueScans` advances `JobSearchPreferences.nextRunAt` with a conditional update, then starts the scan. It is called by `/api/cron/job-scan` (bearer token) and by the in-process check started in `src/instrumentation.ts`. "Tailor Resume for This Job" calls `prepareTailoring`, which creates the `JobDescription` and redirects to `/generate`. Full description: [job-scanner.md](job-scanner.md).
+
 ### Rendering (NFR-002)
 
 `renderResumeHtml` validates content, selects a template and injects `@font-face` rules with base64 Inter. `renderPdf` loads the HTML into a fresh Chromium context with JavaScript disabled and all network requests blocked, emulates print media and exports a tagged PDF with CSS page size. `validateResumePdf` re-opens the PDF, extracts text, checks the candidate name and other expectations, and inspects `/BaseFont` entries so only Inter subsets are referenced.
@@ -84,9 +102,10 @@ Stage 7 and 8 (render + validate) run on demand through `/api/resumes/[id]/pdf`.
 
 ## Testing strategy
 
-| Layer       | Location            | Runs                                                                                                                                              |
-| ----------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit        | `tests/unit`        | schemas, claim validation (incl. Scenario F and prompt injection), evidence matching, content building, proposals, providers, security, templates |
-| Integration | `tests/integration` | document import with generated PDF/DOCX fixtures; database services with embedded PostgreSQL (or `DATABASE_URL_TEST`)                             |
-| PDF         | `tests/pdf`         | every template x fixture: text extraction, Inter embedding, overflow and page-count bounds, determinism                                           |
-| E2E         | `tests/e2e`         | full owner workflow against a production build with the mock provider                                                                             |
+| Layer       | Location                                                                                             | Runs                                                                                                                                                         |
+| ----------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit        | `tests/unit`                                                                                         | schemas, claim validation (incl. Scenario F and prompt injection), evidence matching, content building, proposals, providers, security, templates            |
+| Integration | `tests/integration`                                                                                  | document import with generated PDF/DOCX fixtures; database services with embedded PostgreSQL (or `DATABASE_URL_TEST`)                                        |
+| PDF         | `tests/pdf`                                                                                          | every template x fixture: text extraction, Inter embedding, overflow and page-count bounds, determinism                                                      |
+| Job Scanner | `tests/unit/job-scanner-*`, `tests/integration/job-scanner.test.ts`, `tests/e2e/job-scanner.spec.ts` | rules, source adapters with the request guard, and complete scans against a database with every source answered from fixtures; no test contacts a job source |
+| E2E         | `tests/e2e`                                                                                          | full owner workflow against a production build with the mock provider                                                                                        |

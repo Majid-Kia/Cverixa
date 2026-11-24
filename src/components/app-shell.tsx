@@ -9,10 +9,11 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/profile", label: "Master Profile" },
   { href: "/import", label: "Import Resume" },
+  { href: "/scanner", label: "Job Scanner" },
   { href: "/jobs", label: "Job Descriptions" },
   { href: "/generate", label: "Generate" },
   { href: "/resumes", label: "Resume History" },
-  { href: "/settings", label: "AI Settings" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function AppShell({

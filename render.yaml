@@ -36,3 +36,7 @@ services:
         value: "120000"
       - key: OLLAMA_ALLOWED_HOSTS
         value: ""
+      # Job Scanner: bearer token for /api/cron/job-scan. The free web service sleeps when
+      # idle, so scheduled scans need an external call (see .github/workflows/job-scan-cron.yml).
+      - key: CRON_SECRET
+        generateValue: true
