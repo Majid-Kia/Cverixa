@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { Alert, Card, CardTitle, PageHeader } from "@/components/ui/card";
+import { SettingsTabs } from "@/components/settings-tabs";
 import { getAISettings } from "@/features/ai-settings/service";
 import { getEnv, isProduction } from "@/lib/env";
 import { chatgptConnection, chatgptOrigin } from "@/server/ai/chatgpt/session";
@@ -44,6 +45,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         title="AI Provider Settings"
         description="Choose which provider and model Cverixa uses for import, job analysis and tailoring. API keys are read from server environment variables and are never shown or stored here."
       />
+      <SettingsTabs current="/settings" />
       <Alert tone="info" className="mb-6">
         Cloud providers (OpenAI, Anthropic) may incur usage charges on your own account. Ollama runs locally with no
         external API cost. Cverixa never switches providers without your explicit selection.
