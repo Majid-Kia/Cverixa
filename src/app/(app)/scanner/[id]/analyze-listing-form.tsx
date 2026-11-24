@@ -11,7 +11,7 @@ export function AnalyzeListingForm({ listingId, analyzed }: { listingId: string;
   const [state, action] = useActionState(analyzeListingAction, initialActionState);
   return (
     <form action={action} className="flex flex-col items-end gap-2">
-      <input type="hidden" name="id" value={listingId} />
+      <input type="hidden" name="listingId" value={listingId} />
       <SubmitButton variant={analyzed ? "secondary" : "primary"} size="sm" pendingLabel="Analysing...">
         {analyzed ? "Re-analyse" : "Analyse this job"}
       </SubmitButton>

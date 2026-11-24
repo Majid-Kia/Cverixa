@@ -34,7 +34,7 @@ export function ListingStatusSelect({
       action={(formData) => startTransition(() => setListingStatusAction(formData))}
       className="inline-flex"
     >
-      <input type="hidden" name="id" value={listingId} />
+      <input type="hidden" name="listingId" value={listingId} />
       <Select
         name="status"
         aria-label={`Status of ${title}`}

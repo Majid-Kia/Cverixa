@@ -187,7 +187,15 @@ export default async function ScannerPage({ searchParams }: { searchParams: Prom
               <dd className="mt-1">
                 {preferences.scheduleEnabled && preferences.nextRunAt ? (
                   <>
-                    {formatDateTime(preferences.nextRunAt)}{" "}
+                    {/* Shown in the schedule's own time zone, so it reads as the time the owner chose. */}
+                    {preferences.nextRunAt.toLocaleString("en-GB", {
+                      timeZone: preferences.scheduleTimezone,
+                      weekday: "short",
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
                     <span className="text-muted text-xs">
                       (daily at {preferences.scheduleTime}, {preferences.scheduleTimezone})
                     </span>
@@ -371,8 +379,9 @@ export default async function ScannerPage({ searchParams }: { searchParams: Prom
                           {" · "}
                           {listing.countryCode ? `${countryName(listing.countryCode)} · ` : ""}
                           {listing.location}
-                          {" · "}
-                          {WORK_ARRANGEMENT_LABELS[listing.workArrangement]}
+                          {listing.workArrangement === "unknown"
+                            ? ""
+                            : ` · ${WORK_ARRANGEMENT_LABELS[listing.workArrangement]}`}
                         </span>
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -420,7 +429,7 @@ export default async function ScannerPage({ searchParams }: { searchParams: Prom
                   <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
                     <ListingStatusSelect listingId={listing.id} title={listing.title} status={listing.status} />
                     <form action={tailorListingAction}>
-                      <input type="hidden" name="id" value={listing.id} />
+                      <input type="hidden" name="listingId" value={listing.id} />
                       <Button type="submit" size="sm">
                         Tailor Resume for This Job
                       </Button>

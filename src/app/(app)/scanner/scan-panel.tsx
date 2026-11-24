@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { SubmitButton } from "@/components/submit-button";
 import { Alert, Badge } from "@/components/ui/card";
 import { startScanAction, type ScanActionState } from "@/features/job-scanner/actions";
@@ -59,11 +59,11 @@ export function ScanPanel({ running, disabled }: { running: ScanSnapshot | null;
   const [scan, setScan] = useState<ScanSnapshot | null>(running);
   const [finished, setFinished] = useState<ScanSnapshot | null>(null);
   /** Scans this component has already seen finish; they are not followed again. */
-  const completed = useRef(new Set<string>());
+  const [completed, setCompleted] = useState<string[]>([]);
 
   const scanId = running?.id ?? state.scanId ?? null;
   useEffect(() => {
-    if (!scanId || completed.current.has(scanId)) return;
+    if (!scanId || completed.includes(scanId)) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
@@ -73,7 +73,7 @@ export function ScanPanel({ running, disabled }: { running: ScanSnapshot | null;
           const data = (await response.json()) as ScanSnapshot;
           if (data.status === "running") setScan(data);
           else {
-            completed.current.add(scanId);
+            setCompleted((ids) => (ids.includes(scanId) ? ids : [...ids, scanId]));
             setScan(null);
             setFinished(data);
             router.refresh();
@@ -90,9 +90,10 @@ export function ScanPanel({ running, disabled }: { running: ScanSnapshot | null;
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [scanId, router]);
+  }, [scanId, router, completed]);
 
-  const active = Boolean(scanId) && finished?.id !== scanId && (Boolean(running) || Boolean(scan) || !finished);
+  // A scan is in progress from the moment it is started until this component has seen it finish.
+  const active = scanId !== null && !completed.includes(scanId);
   const progress = scan?.progress ?? null;
   const value = percent(progress);
 

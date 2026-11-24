@@ -118,7 +118,7 @@ export async function startScanAction(): Promise<ScanActionState> {
 
 export async function setListingStatusAction(formData: FormData): Promise<void> {
   const user = await requireUser();
-  const id = String(formData.get("id") ?? "");
+  const id = String(formData.get("listingId") ?? "");
   await setListingStatus(user.id, id, formData.get("status"));
   revalidatePath("/scanner");
   revalidatePath(`/scanner/${id}`);
@@ -127,7 +127,7 @@ export async function setListingStatusAction(formData: FormData): Promise<void> 
 /** "Tailor Resume for This Job": open the existing tailoring workflow with this posting selected. */
 export async function tailorListingAction(formData: FormData): Promise<void> {
   const user = await requireUser();
-  const id = String(formData.get("id") ?? "");
+  const id = String(formData.get("listingId") ?? "");
   let destination: string;
   try {
     const { jobDescriptionId } = await prepareTailoring(user.id, id);
@@ -164,7 +164,7 @@ export async function importJobAction(_previous: ActionState, formData: FormData
 export async function analyzeListingAction(_previous: ActionState, formData: FormData): Promise<ActionState> {
   try {
     const user = await requireUser();
-    const id = String(formData.get("id") ?? "");
+    const id = String(formData.get("listingId") ?? "");
     const preferences = await getJobSearchPreferences(user.id);
     await analyzeListingNow(user.id, id, preferences.rubric);
     revalidatePath(`/scanner/${id}`);

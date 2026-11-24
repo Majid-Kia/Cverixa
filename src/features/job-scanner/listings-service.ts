@@ -27,7 +27,7 @@ import {
 } from "./schema";
 import { classifyVisaSupport, type Evidence, type VisaSupport } from "./sponsorship";
 import { sourceIdForHost } from "./sources/registry";
-import { buildDedupeKey, canonicalUrl, cleanText, descriptionHash, sha256 } from "./text";
+import { buildDedupeKey, canonicalUrl, cleanLine, cleanText, descriptionHash, sha256 } from "./text";
 import { z } from "zod";
 
 export interface ListingView {
@@ -394,9 +394,9 @@ export async function importJobPosting(
     externalId,
     url,
     applyUrl: null,
-    title: parsed.data.title,
-    company: parsed.data.company,
-    location: parsed.data.location || "Not stated",
+    title: cleanLine(parsed.data.title),
+    company: cleanLine(parsed.data.company),
+    location: cleanLine(parsed.data.location) || "Not stated",
     countryCode: resolution.countries[0] ?? null,
     city: resolution.city,
     workArrangement: inferArrangement(undefined, parsed.data.location, parsed.data.title, description),

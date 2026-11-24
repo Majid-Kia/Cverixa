@@ -1,7 +1,7 @@
 import type { ListingArrangement, WorkArrangement } from "./constants";
 import { matchCountries, resolveLocation } from "./countries";
 import { classifyVisaSupport, type VisaSupport } from "./sponsorship";
-import { buildDedupeKey, canonicalUrl, cleanText, descriptionHash, htmlToText, matchKeywords } from "./text";
+import { buildDedupeKey, canonicalUrl, cleanLine, cleanText, descriptionHash, htmlToText, matchKeywords } from "./text";
 import type { SourceJob } from "./sources/types";
 
 /** The preferences that decide whether a posting is kept. */
@@ -87,14 +87,14 @@ export function processSourceJob(
   filters: ListingFilters,
 ): Processed {
   const url = canonicalUrl(job.url);
-  const title = job.title.replace(/\s+/g, " ").trim().slice(0, 200);
-  const company = job.company.replace(/\s+/g, " ").trim().slice(0, 200);
+  const title = cleanLine(job.title);
+  const company = cleanLine(job.company);
   if (!url || !title || !company || !job.externalId) return { kind: "skip", reason: "invalid" };
 
   const matchedKeywords = matchKeywords(title, filters.keywords);
   if (matchedKeywords.length === 0) return { kind: "skip", reason: "title" };
 
-  const location = job.location.replace(/\s+/g, " ").trim().slice(0, 200);
+  const location = cleanLine(job.location);
   const resolution = resolveLocation(location, job.countryHints ?? []);
   const description = job.descriptionText ? cleanText(job.descriptionText) : htmlToText(job.descriptionHtml ?? "");
   const workArrangement = inferArrangement(job.workArrangement, location, title, description);

@@ -108,6 +108,20 @@ export function cleanText(text: string): string {
     .slice(0, SCAN_LIMITS.maxDescriptionLength);
 }
 
+/**
+ * A one-line field from a source (title, company, location): markup and
+ * control characters removed, whitespace collapsed, length capped. Sources
+ * occasionally put markup or stray bytes in these, and a NUL byte cannot be
+ * stored in PostgreSQL at all.
+ */
+export function cleanLine(value: string, max = 200): string {
+  return decodeEntities(value.toWellFormed().replace(/<\/?[a-z][^>]*>/gi, " "))
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }

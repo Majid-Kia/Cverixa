@@ -102,14 +102,14 @@ export default async function ListingPage({
           listing.company,
           listing.countryCode ? countryName(listing.countryCode) : null,
           listing.location,
-          WORK_ARRANGEMENT_LABELS[listing.workArrangement],
+          listing.workArrangement === "unknown" ? null : WORK_ARRANGEMENT_LABELS[listing.workArrangement],
         ]
           .filter(Boolean)
           .join(" · ")}
         actions={
           <>
             <form action={tailorListingAction}>
-              <input type="hidden" name="id" value={listing.id} />
+              <input type="hidden" name="listingId" value={listing.id} />
               <Button type="submit">Tailor Resume for This Job</Button>
             </form>
             <a href={applyUrl} target="_blank" rel="noopener noreferrer" className={buttonClasses("secondary")}>
@@ -265,7 +265,9 @@ export default async function ListingPage({
             {/* Posting text is untrusted and rendered as plain text only. */}
             <div className="text-sm break-words whitespace-pre-wrap">{listing.description || "No description."}</div>
             <p className="text-muted mt-4 text-xs">
-              Text as provided by {sourceLabel(listing.sourceId)}.{" "}
+              {listing.ingestion === "manual"
+                ? "Text as you pasted it."
+                : `Text as provided by ${sourceLabel(listing.sourceId)}.`}{" "}
               <a href={listing.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                 Open the original posting
               </a>
@@ -366,13 +368,13 @@ export default async function ListingPage({
             )}
             <div className="mt-3 flex flex-wrap gap-2">
               <form action={tailorListingAction}>
-                <input type="hidden" name="id" value={listing.id} />
+                <input type="hidden" name="listingId" value={listing.id} />
                 <Button type="submit" size="sm">
                   Quick Generate
                 </Button>
               </form>
               <form action={tailorListingAction}>
-                <input type="hidden" name="id" value={listing.id} />
+                <input type="hidden" name="listingId" value={listing.id} />
                 <input type="hidden" name="mode" value="review" />
                 <Button type="submit" size="sm" variant="secondary">
                   Review Mode
