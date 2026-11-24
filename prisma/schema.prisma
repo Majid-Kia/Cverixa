@@ -18,14 +18,20 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions          Session[]
-  careerProfiles    CareerProfile[]
-  jobDescriptions   JobDescription[]
-  resumes           Resume[]
-  generationRuns    GenerationRun[]
-  aiConfigurations  AIProviderConfiguration[]
-  importSessions    ImportSession[]
-  coverLetters      CoverLetter[]
+  sessions                Session[]
+  careerProfiles          CareerProfile[]
+  jobDescriptions         JobDescription[]
+  resumes                 Resume[]
+  generationRuns          GenerationRun[]
+  aiConfigurations        AIProviderConfiguration[]
+  importSessions          ImportSession[]
+  coverLetters            CoverLetter[]
+  jobSearchPreferences    JobSearchPreferences?
+  jobSourceConfigurations JobSourceConfiguration[]
+  jobListings             JobListing[]
+  jobMatchAnalyses        JobMatchAnalysis[]
+  jobListingEvents        JobListingEvent[]
+  jobScans                JobScan[]
 }
 
 /// Database-backed login session referenced by an HttpOnly cookie.
@@ -90,7 +96,7 @@ model ImportSession {
 }
 
 model JobDescription {
-  id                     String   @id @default(cuid())
+  id                     String    @id @default(cuid())
   ownerId                String
   title                  String?
   company                String?
@@ -102,13 +108,15 @@ model JobDescription {
   analysisProviderId     String?
   analysisModelId        String?
   analyzedAt             DateTime?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   resumes        Resume[]
   generationRuns GenerationRun[]
   coverLetter    CoverLetter?
+  /// Set when this job description was created from a Job Scanner listing.
+  jobListing     JobListing?
 
   @@index([ownerId, createdAt])
 }
@@ -149,9 +157,9 @@ model Resume {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  careerProfile  CareerProfile   @relation(fields: [careerProfileId], references: [id], onDelete: Cascade)
-  jobDescription JobDescription? @relation(fields: [jobDescriptionId], references: [id], onDelete: SetNull)
+  owner          User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  careerProfile  CareerProfile    @relation(fields: [careerProfileId], references: [id], onDelete: Cascade)
+  jobDescription JobDescription?  @relation(fields: [jobDescriptionId], references: [id], onDelete: SetNull)
   revisions      ResumeRevision[]
 
   @@index([ownerId, updatedAt])
@@ -217,4 +225,241 @@ model AIProviderConfiguration {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@unique([ownerId, providerId])
+}
+
+/// Job Scanner: what the owner is looking for, the filters to apply and when to
+/// scan automatically. One row per owner, created when preferences are saved.
+model JobSearchPreferences {
+  id                      String    @id @default(cuid())
+  ownerId                 String    @unique
+  /// ISO 3166-1 alpha-2 country codes. An empty list means any country.
+  countries               Json
+  /// Job titles and keywords matched against listing titles.
+  keywords                Json
+  /// onsite | hybrid | remote. An empty list means any arrangement.
+  workArrangements        Json
+  /// Keep only listings with confirmed or possible sponsorship.
+  requireSponsorship      Boolean   @default(false)
+  preferRelocation        Boolean   @default(true)
+  excludeWorkAuthRequired Boolean   @default(true)
+  excludeNoSponsorship    Boolean   @default(true)
+  aiMatchingEnabled       Boolean   @default(true)
+  maxAnalysesPerScan      Int       @default(25)
+  /// Matching rubric weights and the high-relevance threshold (see docs/job-scanner.md).
+  rubric                  Json?
+  scheduleEnabled         Boolean   @default(false)
+  /// Local wall-clock time of the daily scan, "HH:mm".
+  scheduleTime            String    @default("05:00")
+  /// IANA time zone the schedule time is expressed in.
+  scheduleTimezone        String    @default("UTC")
+  /// Next scheduled run (UTC). The scheduler claims it atomically by advancing it.
+  nextRunAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleEnabled, nextRunAt])
+}
+
+/// Per-owner settings of one job source adapter. The adapters themselves are
+/// code (src/features/job-scanner/sources); no credentials are stored here.
+model JobSourceConfiguration {
+  id            String   @id @default(cuid())
+  ownerId       String
+  sourceId      String
+  enabled       Boolean  @default(true)
+  configuration Json
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, sourceId])
+}
+
+/// A job posting found by a scan or imported by the owner. Rediscovery updates
+/// the listing metadata; the owner's tracking status is never reset.
+model JobListing {
+  id                  String    @id @default(cuid())
+  ownerId             String
+  sourceId            String
+  /// Identifier assigned by the source (or a hash of the URL for manual imports).
+  externalId          String
+  /// Normalised company, title and place; matches the same job across sources.
+  dedupeKey           String
+  /// Original posting URL.
+  url                 String
+  /// Application URL when the source provides a separate one.
+  applyUrl            String?
+  title               String
+  company             String
+  /// Location as stated by the source.
+  location            String
+  countryCode         String?
+  city                String?
+  /// onsite | hybrid | remote | unknown
+  workArrangement     String    @default("unknown")
+  /// Plain text of the posting. Untrusted content; never rendered as HTML.
+  description         String
+  descriptionHash     String
+  postedAt            DateTime?
+  discoveredAt        DateTime  @default(now())
+  lastSeenAt          DateTime  @default(now())
+  firstScanId         String?
+  lastScanId          String?
+  seenCount           Int       @default(1)
+  /// Other sources that listed the same job: [{ sourceId, url }].
+  alsoSeenOn          Json?
+  /// automatic (found by a source adapter) | manual (imported by the owner)
+  ingestion           String    @default("automatic")
+  /// confirmed | possible | unknown | none
+  sponsorshipStatus   String    @default("unknown")
+  /// 0 confirmed, 1 possible, 2 unknown, 3 none. Used for ordering.
+  sponsorshipRank     Int       @default(2)
+  /// [{ text, basis, sourceUrl, note }] supporting the classification.
+  sponsorshipEvidence Json
+  /// offered | not_offered | unknown
+  relocationStatus    String    @default("unknown")
+  relocationEvidence  Json
+  workAuthRequired    Boolean   @default(false)
+  workAuthEvidence    Json
+  /// new | saved | applied | interviewing | rejected | offer | dismissed
+  status              String    @default("new")
+  statusChangedAt     DateTime?
+  /// Job Match Score (0-100), copied from the match analysis for ordering.
+  matchScore          Int?
+  /// The job description used by the resume tailoring workflow for this listing.
+  jobDescriptionId    String?   @unique
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  owner          User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  jobDescription JobDescription?   @relation(fields: [jobDescriptionId], references: [id], onDelete: SetNull)
+  analysis       JobMatchAnalysis?
+  events         JobListingEvent[]
+
+  @@unique([ownerId, sourceId, externalId])
+  @@index([ownerId, dedupeKey])
+  @@index([ownerId, status])
+  @@index([ownerId, sponsorshipRank, matchScore])
+  @@index([ownerId, discoveredAt])
+}
+
+/// Requirements extracted from a listing by the AI provider and the
+/// deterministic match of those requirements against the confirmed profile.
+/// The extraction is cached per description; the match per profile revision.
+model JobMatchAnalysis {
+  id                      String    @id @default(cuid())
+  ownerId                 String
+  listingId               String    @unique
+  /// Hash of the description the requirements were extracted from.
+  descriptionHash         String
+  /// completed | failed
+  status                  String
+  failureReason           String?
+  attempts                Int       @default(0)
+  providerId              String?
+  modelId                 String?
+  /// Extracted requirements in the job-analysis shape (reused by tailoring).
+  analysis                Json?
+  /// Sponsorship, relocation and work-authorisation statements quoted by the AI.
+  signals                 Json?
+  analyzedAt              DateTime?
+  careerProfileRevisionId String?
+  rubricVersion           Int?
+  /// Hash of the rubric weights the score was computed with.
+  rubricHash              String?
+  score                   Int?
+  /// Per-component scores, weights and details.
+  breakdown               Json?
+  explanation             String?
+  matchingSkills          Json?
+  missingQualifications   Json?
+  matchedAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  owner   User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  listing JobListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, status])
+}
+
+/// Append-only history of what happened to a listing (status changes,
+/// rediscovery with changed content, tailoring).
+model JobListingEvent {
+  id         String   @id @default(cuid())
+  ownerId    String
+  listingId  String
+  /// discovered | status_changed | content_updated | tailoring_started | imported
+  type       String
+  fromStatus String?
+  toStatus   String?
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  owner   User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  listing JobListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, createdAt])
+}
+
+/// One execution of the scanner.
+model JobScan {
+  id              String    @id @default(cuid())
+  ownerId         String
+  /// manual | scheduled
+  trigger         String
+  /// running | completed | partial | failed | skipped
+  status          String
+  /// Holds the owner id while the scan runs; unique, so one scan per owner at a time.
+  activeLock      String?   @unique
+  /// The schedule slot this run belongs to (scheduled runs only).
+  scheduledFor    DateTime?
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  heartbeatAt     DateTime  @default(now())
+  countries       Json
+  keywords        Json
+  /// Source ids queried by this run.
+  sources         Json
+  /// { phase, sourcesDone, sourcesTotal, analyzed, toAnalyze }
+  progress        Json?
+  discoveredCount Int       @default(0)
+  newCount        Int       @default(0)
+  duplicateCount  Int       @default(0)
+  filteredCount   Int       @default(0)
+  analyzedCount   Int       @default(0)
+  errorSummary    String?
+  diagnostics     Json?
+
+  owner         User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  sourceResults JobScanSourceResult[]
+
+  @@unique([ownerId, scheduledFor])
+  @@index([ownerId, startedAt])
+}
+
+/// Outcome of one source within a scan. A failed source never fails the scan.
+model JobScanSourceResult {
+  id             String   @id @default(cuid())
+  scanId         String
+  sourceId       String
+  /// completed | failed | skipped
+  status         String
+  fetchedCount   Int      @default(0)
+  matchedCount   Int      @default(0)
+  newCount       Int      @default(0)
+  duplicateCount Int      @default(0)
+  requestCount   Int      @default(0)
+  durationMs     Int      @default(0)
+  error          String?
+  diagnostics    Json?
+  createdAt      DateTime @default(now())
+
+  scan JobScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([sourceId, status, createdAt])
 }
